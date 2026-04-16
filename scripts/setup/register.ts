@@ -7,10 +7,10 @@
 import fs from 'fs';
 import path from 'path';
 
-import { STORE_DIR } from '../src/config.ts';
-import { initDatabase, setRegisteredGroup } from '../src/db.ts';
-import { isValidGroupFolder } from '../src/group-folder.ts';
-import { logger } from '../src/logger.ts';
+import { DATA_DIR } from '../../src/config.ts';
+import { initDatabase, setRegisteredGroup } from '../../src/db.ts';
+import { isValidGroupFolder } from '../../src/group-folder.ts';
+import { logger } from '../../src/logger.ts';
 import { emitStatus } from './status.ts';
 
 interface RegisterArgs {
@@ -95,7 +95,7 @@ export async function run(args: string[]): Promise<void> {
   // Ensure data and store directories exist (store/ may not exist on
   // fresh installs that skip WhatsApp auth, which normally creates it)
   fs.mkdirSync(path.join(projectRoot, 'data'), { recursive: true });
-  fs.mkdirSync(STORE_DIR, { recursive: true });
+  fs.mkdirSync(DATA_DIR, { recursive: true });
 
   // Initialize database (creates schema + runs migrations)
   initDatabase();

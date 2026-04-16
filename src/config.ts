@@ -36,7 +36,6 @@ export const SENDER_ALLOWLIST_PATH = path.join(
   'shog-agent',
   'sender-allowlist.json',
 );
-export const STORE_DIR = path.resolve(PROJECT_ROOT, 'store');
 export const GROUPS_DIR = path.resolve(PROJECT_ROOT, 'groups');
 export const DATA_DIR = path.resolve(PROJECT_ROOT, 'data');
 export const TRIGGERS_DIR = path.resolve(DATA_DIR, 'triggers');

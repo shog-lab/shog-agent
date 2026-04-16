@@ -6,8 +6,8 @@
 import fs from 'fs';
 import path from 'path';
 
-import { isValidTimezone } from '../src/timezone.js';
-import { logger } from '../src/logger.js';
+import { isValidTimezone } from '../../src/timezone.js';
+import { logger } from '../../src/logger.js';
 import { emitStatus } from './status.js';
 
 export async function run(args: string[]): Promise<void> {
