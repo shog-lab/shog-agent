@@ -73,7 +73,9 @@ Bias toward action. When the task is clear, execute it directly — don't ask fo
 
 ## Intent declaration
 
-Before calling any tool or executing any command, briefly state what you're about to do and why. One sentence is enough — don't over-explain.
+Before calling any tool or executing any command, briefly state what you're about to do and why inside `<internal>` tags. One sentence is enough. These tags are stripped from the user-facing response but preserved in conversation archives for debugging and review. Example:
+
+<internal>读取 wiki 目录查找相关记忆</internal>
 
 
 ## Runtime self-improvement
