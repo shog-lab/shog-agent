@@ -5,7 +5,7 @@ description: Run initial ShogAgent setup. Use when user wants to install depende
 
 # ShogAgent Setup
 
-Run setup steps automatically. Only pause when user action is required (channel authentication, configuration choices). Setup uses `bash setup.sh` for bootstrap, then `npx tsx setup/index.ts --step <name>` for all other steps. Steps emit structured status blocks to stdout. Verbose logs go to `logs/setup.log`.
+Run setup steps automatically. Only pause when user action is required (channel authentication, configuration choices). Setup uses `bash setup.sh` for bootstrap, then `npx tsx scripts/setup/index.ts --step <name>` for all other steps. Steps emit structured status blocks to stdout. Verbose logs go to `logs/setup.log`.
 
 **Principle:** When something is broken or missing, fix it. Don't tell the user to go fix it themselves unless it genuinely requires their manual action (e.g. authenticating a channel, pasting a secret token). If a dependency is missing, install it. If a service won't start, diagnose and repair. Ask the user for permission when needed, then do the work.
 
@@ -24,16 +24,16 @@ Run `bash setup.sh` and parse the status block.
 
 ## 2. Check Environment
 
-Run `npx tsx setup/index.ts --step environment` and parse the status block.
+Run `npx tsx scripts/setup/index.ts --step environment` and parse the status block.
 
 - If HAS_REGISTERED_GROUPS=true → note existing config, offer to skip or reconfigure
 - Record DOCKER value for step 3
 
 ## 2a. Timezone
 
-Run `npx tsx setup/index.ts --step timezone` and parse the status block.
+Run `npx tsx scripts/setup/index.ts --step timezone` and parse the status block.
 
-- If NEEDS_USER_INPUT=true → AskUserQuestion: "What is your timezone?" with common options (America/New_York, Europe/London, Asia/Shanghai, Asia/Tokyo) and an "Other" escape. Then re-run: `npx tsx setup/index.ts --step timezone -- --tz <their-answer>`.
+- If NEEDS_USER_INPUT=true → AskUserQuestion: "What is your timezone?" with common options (America/New_York, Europe/London, Asia/Shanghai, Asia/Tokyo) and an "Other" escape. Then re-run: `npx tsx scripts/setup/index.ts --step timezone -- --tz <their-answer>`.
 - If STATUS=success → Timezone is configured. Note RESOLVED_TZ for reference.
 
 ## 3. Container Runtime (Docker)
@@ -48,7 +48,7 @@ Run `npx tsx setup/index.ts --step timezone` and parse the status block.
 
 ### 3b. Build and test
 
-Run `npx tsx setup/index.ts --step container -- --runtime docker` and parse the status block.
+Run `npx tsx scripts/setup/index.ts --step container -- --runtime docker` and parse the status block.
 
 **If BUILD_OK=false:** Read `logs/setup.log` tail for the build error.
 - Cache issue (stale layers): `docker builder prune -f`. Retry.
@@ -128,8 +128,8 @@ npm install && npm run build
 
 AskUserQuestion: Agent access to external directories?
 
-**No:** `npx tsx setup/index.ts --step mounts -- --empty`
-**Yes:** Collect paths/permissions. `npx tsx setup/index.ts --step mounts -- --json '{"allowedRoots":[...],"blockedPatterns":[],"nonMainReadOnly":true}'`
+**No:** `npx tsx scripts/setup/index.ts --step mounts -- --empty`
+**Yes:** Collect paths/permissions. `npx tsx scripts/setup/index.ts --step mounts -- --json '{"allowedRoots":[...],"blockedPatterns":[],"nonMainReadOnly":true}'`
 
 ## 7. Start Service
 
@@ -137,7 +137,7 @@ If service already running: unload first.
 - macOS: `launchctl unload ~/Library/LaunchAgents/com.shog-agent.plist`
 - Linux: `systemctl --user stop shog-agent` (or `systemctl stop shog-agent` if root)
 
-Run `npx tsx setup/index.ts --step service` and parse the status block.
+Run `npx tsx scripts/setup/index.ts --step service` and parse the status block.
 
 **If FALLBACK=wsl_no_systemd:** WSL without systemd detected. Tell user they can either enable systemd in WSL (`echo -e "[boot]\nsystemd=true" | sudo tee /etc/wsl.conf` then restart WSL) or use the generated `start-shog-agent.sh` wrapper.
 
@@ -163,14 +163,14 @@ Replace `USERNAME` with the actual username (from `whoami`).
 
 ## 8. Verify
 
-Run `npx tsx setup/index.ts --step verify` and parse the status block.
+Run `npx tsx scripts/setup/index.ts --step verify` and parse the status block.
 
 **If STATUS=failed, fix each:**
 - SERVICE=stopped → `npm run build`, then restart: `launchctl kickstart -k gui/$(id -u)/com.shog-agent` (macOS) or `systemctl --user restart shog-agent` (Linux) or `bash start-shog-agent.sh` (WSL nohup)
 - SERVICE=not_found → re-run step 7
 - CREDENTIALS=missing → re-run step 4 (check `.env` for `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN`)
 - REGISTERED_GROUPS=0 → re-run step 5
-- MOUNT_ALLOWLIST=missing → `npx tsx setup/index.ts --step mounts -- --empty`
+- MOUNT_ALLOWLIST=missing → `npx tsx scripts/setup/index.ts --step mounts -- --empty`
 
 Tell user to test: send a message in their registered chat. Show: `tail -f logs/shog-agent.log`
 
@@ -180,7 +180,7 @@ Tell user to test: send a message in their registered chat. Show: `tail -f logs/
 
 **Container agent fails:** Ensure Docker is running — `open -a Docker` (macOS) or `sudo systemctl start docker` (Linux). Check container logs in `groups/*/logs/container-*.log`.
 
-**No response to messages:** Check trigger pattern (`ASSISTANT_NAME` in `.env`). Main channel doesn't need prefix. Check DB: `npx tsx setup/index.ts --step verify`. Check `logs/shog-agent.log`.
+**No response to messages:** Check trigger pattern (`ASSISTANT_NAME` in `.env`). Main channel doesn't need prefix. Check DB: `npx tsx scripts/setup/index.ts --step verify`. Check `logs/shog-agent.log`.
 
 **Channel not connecting:** Verify the channel's credentials are set in `.env`. Channels auto-enable when their credentials are present. Restart the service after any `.env` change.
 
