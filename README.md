@@ -4,12 +4,6 @@
 
 Multi-agent platform where each agent maintains its own [LLM Wiki](https://github.com/luotwo/llm-wiki) (Karpathy's structured knowledge pattern), creates skills and extensions, and improves through self-reflection. Agents can invoke Claude Code on the host machine to write code, run tests, and verify results autonomously.
 
-## Why ShogAgent?
-
-**Why not OpenClaw?** — 500K lines of code, 70+ dependencies. You can't understand it, let alone customize it. ShogAgent is ~12K lines. You can read every line.
-
-**Why not NanoClaw?** — Hardcoded to Claude Agent SDK. Agents can't create their own tools or modify their own execution logic. Self-evolution is limited to editing a markdown file. ShogAgent uses [pi-mono](https://github.com/badlogic/pi-mono) as the agent runtime, giving agents full access to create skills (workflows), extensions (custom tools), and evolve their own harness.
-
 ## How It Works
 
 ```

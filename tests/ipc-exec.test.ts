@@ -100,12 +100,11 @@ describe('IPC exec_ralph integration', () => {
     dataDir = path.join(tmpDir, 'data');
     initGitRepo(repoDir);
     // Set DATA_DIR for response file paths
-    process.env.SHOGCLAW_DATA_DIR = dataDir;
+    // dataDir is used by test fixtures below
   });
 
   afterEach(() => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
-    delete process.env.SHOGCLAW_DATA_DIR;
     vi.clearAllMocks();
   });
 
@@ -253,12 +252,11 @@ describe('IPC exec_claude integration', () => {
     repoDir = path.join(tmpDir, 'repo');
     dataDir = path.join(tmpDir, 'data');
     initGitRepo(repoDir);
-    process.env.SHOGCLAW_DATA_DIR = dataDir;
+    // dataDir is used by test fixtures below
   });
 
   afterEach(() => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
-    delete process.env.SHOGCLAW_DATA_DIR;
     vi.clearAllMocks();
   });
 

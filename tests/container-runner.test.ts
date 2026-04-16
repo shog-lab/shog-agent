@@ -3,8 +3,8 @@ import { EventEmitter } from 'events';
 import { PassThrough } from 'stream';
 
 // Sentinel markers must match container-runner.ts
-const OUTPUT_START_MARKER = '---SHOGCLAW_OUTPUT_START---';
-const OUTPUT_END_MARKER = '---SHOGCLAW_OUTPUT_END---';
+const OUTPUT_START_MARKER = '---SHOG_OUTPUT_START---';
+const OUTPUT_END_MARKER = '---SHOG_OUTPUT_END---';
 
 // Mock config
 vi.mock('../src/config.js', () => ({
