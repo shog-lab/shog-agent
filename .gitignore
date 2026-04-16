@@ -9,7 +9,6 @@ container/extensions/**/*.d.ts
 container/extensions/**/*.d.ts.map
 
 # Local data & auth
-store/
 data/
 logs/
 

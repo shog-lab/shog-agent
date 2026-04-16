@@ -10,8 +10,8 @@ import path from 'path';
 
 import Database from 'better-sqlite3';
 
-import { STORE_DIR } from '../src/config.js';
-import { logger } from '../src/logger.js';
+import { DATA_DIR } from '../../src/config.js';
+import { logger } from '../../src/logger.js';
 import { emitStatus } from './status.js';
 
 function parseArgs(args: string[]): { list: boolean; limit: number } {
@@ -40,7 +40,7 @@ export async function run(args: string[]): Promise<void> {
 }
 
 async function listGroups(limit: number): Promise<void> {
-  const dbPath = path.join(STORE_DIR, 'messages.db');
+  const dbPath = path.join(DATA_DIR, 'messages.db');
 
   if (!fs.existsSync(dbPath)) {
     console.error('ERROR: database not found');
@@ -199,7 +199,7 @@ sock.ev.on('connection.update', async (update) => {
 
   // Count groups in DB using better-sqlite3 (no sqlite3 CLI)
   let groupsInDb = 0;
-  const dbPath = path.join(STORE_DIR, 'messages.db');
+  const dbPath = path.join(DATA_DIR, 'messages.db');
   if (fs.existsSync(dbPath)) {
     try {
       const db = new Database(dbPath, { readonly: true });

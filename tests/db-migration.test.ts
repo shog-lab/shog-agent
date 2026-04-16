@@ -13,9 +13,9 @@ describe('database migrations', () => {
 
     try {
       process.chdir(tempDir);
-      fs.mkdirSync(path.join(tempDir, 'store'), { recursive: true });
+      fs.mkdirSync(path.join(tempDir, 'data'), { recursive: true });
 
-      const dbPath = path.join(tempDir, 'store', 'messages.db');
+      const dbPath = path.join(tempDir, 'data', 'messages.db');
       const legacyDb = new Database(dbPath);
       legacyDb.exec(`
         CREATE TABLE chats (
