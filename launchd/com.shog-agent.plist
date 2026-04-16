@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.shogclaw</string>
+    <string>com.shog-agent</string>
     <key>ProgramArguments</key>
     <array>
         <string>{{NODE_PATH}}</string>
@@ -25,8 +25,8 @@
         <string>Andy</string>
     </dict>
     <key>StandardOutPath</key>
-    <string>{{PROJECT_ROOT}}/logs/shogclaw.log</string>
+    <string>{{PROJECT_ROOT}}/logs/shog-agent.log</string>
     <key>StandardErrorPath</key>
-    <string>{{PROJECT_ROOT}}/logs/shogclaw.error.log</string>
+    <string>{{PROJECT_ROOT}}/logs/shog-agent.error.log</string>
 </dict>
 </plist>
