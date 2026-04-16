@@ -187,7 +187,7 @@ Channel 接口声明能力（`handlesOwnTrigger`、`setTyping`、`syncGroups`）
 | `.env` | 钉钉凭证、助手名称、模型配置 |
 | `~/.pi/agent/auth.json` | pi OAuth 登录凭证（宿主机） |
 | `data/weixin-auth.json` | 微信 iLink Bot Token |
-| `store/messages.db` | SQLite 数据库 |
+| `data/messages.db` | SQLite 数据库 |
 
 ---
 

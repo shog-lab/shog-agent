@@ -92,8 +92,7 @@ export async function run(args: string[]): Promise<void> {
 
   logger.info(parsed, 'Registering channel');
 
-  // Ensure data and store directories exist (store/ may not exist on
-  // fresh installs that skip WhatsApp auth, which normally creates it)
+  // Ensure data directory exists
   fs.mkdirSync(path.join(projectRoot, 'data'), { recursive: true });
   fs.mkdirSync(DATA_DIR, { recursive: true });
 
