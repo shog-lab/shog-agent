@@ -15,7 +15,7 @@ import path from 'path';
 const PROJECT_ROOT = path.resolve(
   process.env.SHOGCLAW_DIR || path.join(import.meta.dirname, '..'),
 );
-const DB_PATH = path.join(PROJECT_ROOT, 'store', 'messages.db');
+const DB_PATH = path.join(PROJECT_ROOT, 'data', 'messages.db');
 const ENV_FILE = path.join(PROJECT_ROOT, '.env');
 const DATA_DIR = path.join(PROJECT_ROOT, 'data');
 const GROUPS_DIR = path.join(PROJECT_ROOT, 'groups');
