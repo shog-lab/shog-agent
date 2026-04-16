@@ -7,8 +7,8 @@ import path from 'path';
 
 import Database from 'better-sqlite3';
 
-import { STORE_DIR } from '../src/config.js';
-import { logger } from '../src/logger.js';
+import { DATA_DIR } from '../../src/config.js';
+import { logger } from '../../src/logger.js';
 import { commandExists, getPlatform, isHeadless, isWSL } from './platform.js';
 import { emitStatus } from './status.js';
 
@@ -51,7 +51,7 @@ export async function run(_args: string[]): Promise<void> {
     hasRegisteredGroups = true;
   } else {
     // Check SQLite directly using better-sqlite3 (no sqlite3 CLI needed)
-    const dbPath = path.join(STORE_DIR, 'messages.db');
+    const dbPath = path.join(DATA_DIR, 'messages.db');
     if (fs.existsSync(dbPath)) {
       try {
         const db = new Database(dbPath, { readonly: true });
