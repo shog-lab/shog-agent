@@ -1,0 +1,27 @@
+{
+  "search": {
+    "maxInjectTokens": 4000,
+    "l1MaxTokens": 2000,
+    "minScoreThreshold": 0.001,
+    "vectorSimilarityThreshold": 0.3,
+    "maxSearchResults": 20
+  },
+  "embedding": {
+    "model": "nomic-embed-text",
+    "ollamaUrl": "http://host.docker.internal:11434",
+    "maxInputChars": 8000
+  },
+  "typeWeights": {
+    "preference": 1.5,
+    "decision": 1.4,
+    "workflow": 1.3,
+    "fact": 1.0,
+    "research": 0.9,
+    "compaction": 0.7,
+    "note": 1.0
+  },
+  "recency": {
+    "maxBoost": 0.15,
+    "decayDays": 60
+  }
+}
