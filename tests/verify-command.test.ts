@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   getDirectModeTools,
   getWorktreeModeDisallowedTools,
-} from './verify-command.js';
+} from '../src/verify-command.js';
 
 describe('getDirectModeTools', () => {
   const tools = getDirectModeTools();

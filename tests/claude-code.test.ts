@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 
-import { validateRepo } from './claude-code.js';
+import { validateRepo } from '../src/claude-code.js';
 
 let tmpDir: string;
 
@@ -100,9 +100,9 @@ describe('validateRepo', () => {
 describe('ExecRalphParams validation', () => {
   it('ExecRalphParams interface has required fields', async () => {
     // Type-level test: ensure the interface exists and has expected shape
-    const { ExecRalphParams } = (await import('./claude-code.js')) as any;
+    const { ExecRalphParams } = (await import('../src/claude-code.js')) as any;
     // This is a runtime check that the module exports correctly
-    const mod = await import('./claude-code.js');
+    const mod = await import('../src/claude-code.js');
     expect(mod.execRalph).toBeTypeOf('function');
     expect(mod.execClaude).toBeTypeOf('function');
     expect(mod.validateRepo).toBeTypeOf('function');
@@ -111,7 +111,7 @@ describe('ExecRalphParams validation', () => {
 
 describe('ExecClaudeParams validation', () => {
   it('exports execClaude function', async () => {
-    const mod = await import('./claude-code.js');
+    const mod = await import('../src/claude-code.js');
     expect(mod.execClaude).toBeTypeOf('function');
   });
 });

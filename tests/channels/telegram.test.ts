@@ -3,19 +3,19 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 // --- Mocks ---
 
 // Mock registry (registerChannel runs at import time)
-vi.mock('./registry.js', () => ({ registerChannel: vi.fn() }));
+vi.mock('../../src/channels/registry.js', () => ({ registerChannel: vi.fn() }));
 
 // Mock env reader (used by the factory, not needed in unit tests)
-vi.mock('../env.js', () => ({ readEnvFile: vi.fn(() => ({})) }));
+vi.mock('../../src/env.js', () => ({ readEnvFile: vi.fn(() => ({})) }));
 
 // Mock config
-vi.mock('../config.js', () => ({
+vi.mock('../../src/config.js', () => ({
   ASSISTANT_NAME: 'Andy',
   TRIGGER_PATTERN: /^@Andy\b/i,
 }));
 
 // Mock logger
-vi.mock('../logger.js', () => ({
+vi.mock('../../src/logger.js', () => ({
   logger: {
     debug: vi.fn(),
     info: vi.fn(),
@@ -25,7 +25,7 @@ vi.mock('../logger.js', () => ({
 }));
 
 // Mock group-folder (used by downloadFile)
-vi.mock('../group-folder.js', () => ({
+vi.mock('../../src/group-folder.js', () => ({
   resolveGroupFolderPath: vi.fn(
     (folder: string) => `/tmp/test-groups/${folder}`,
   ),
@@ -78,7 +78,7 @@ vi.mock('grammy', () => ({
 }));
 
 import fs from 'fs';
-import { TelegramChannel, TelegramChannelOpts } from './telegram.js';
+import { TelegramChannel, TelegramChannelOpts } from '../../src/channels/telegram.js';
 
 // --- Test helpers ---
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { spawnAndCapture } from './spawn-utils.js';
+import { spawnAndCapture } from '../src/spawn-utils.js';
 
 describe('spawnAndCapture', () => {
   it('captures stdout from successful command', async () => {
