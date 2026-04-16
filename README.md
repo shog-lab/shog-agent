@@ -104,7 +104,7 @@ Channels are plugin-based. Each self-registers at startup if credentials are pre
 | `container/pi-agent-runner/` | Container-side agent runner |
 | `container/extensions/memory/` | LLM Wiki memory system (FTS5 + vectors + KG) |
 | `container/schema/` | Global wiki rules |
-| `scripts/claw.ts` | CLI tool for terminal testing |
+| `scripts/cli.ts` | CLI tool for terminal testing |
 
 ## Development
 
@@ -115,7 +115,7 @@ npm test             # Run tests
 ./container/build.sh # Rebuild agent container
 
 # Debug: send prompt to agent without DingTalk
-echo "your prompt" | npx tsx scripts/claw.ts -g group-name
+echo "your prompt" | npx tsx scripts/cli.ts -g group-name
 ```
 
 ## Requirements

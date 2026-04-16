@@ -41,16 +41,16 @@ npm run build        # Compile TypeScript
 
 ## Debugging
 
-用 claw CLI 直接发 prompt 给 agent 容器，不需要通过钉钉：
+用 CLI 直接发 prompt 给 agent 容器，不需要通过钉钉：
 
 ```bash
-echo "你的 prompt" | npx tsx scripts/claw.ts <group-name>
+echo "你的 prompt" | npx tsx scripts/cli.ts <group-name>
 # 例如：
-echo "对 yt-dubbing 跑黑盒测试" | npx tsx scripts/claw.ts dingtalk-harness
-echo "你好" | npx tsx scripts/claw.ts dingtalk-shog
+echo "对 yt-dubbing 跑黑盒测试" | npx tsx scripts/cli.ts dingtalk-harness
+echo "你好" | npx tsx scripts/cli.ts dingtalk-shog
 ```
 
-调试时优先用 claw，不要浪费用户时间让他在钉钉里触发。
+调试时优先用 CLI（scripts/cli.ts），不要浪费用户时间让他在钉钉里触发。
 
 ## Container Build Cache
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env npx tsx
 /**
- * claw — ShogAgent CLI
+ * cli — ShogAgent CLI
  * Send prompts to agent containers from the terminal.
  */
 
@@ -345,7 +345,7 @@ async function main() {
 
   if (!prompt) {
     console.error(
-      'usage: claw [-g group] [-s session] [--pipe] [--timeout N] "prompt"',
+      'usage: cli [-g group] [-s session] [--pipe] [--timeout N] "prompt"',
     );
     process.exit(1);
   }
