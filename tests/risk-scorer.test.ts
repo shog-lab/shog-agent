@@ -4,7 +4,7 @@ import {
   scoreRisk,
   evaluateRalphRisk,
   evaluateClaudeRisk,
-} from './risk-scorer.js';
+} from '../src/risk-scorer.js';
 
 describe('scoreRisk', () => {
   it('scores read operations as LOW', () => {

@@ -4,14 +4,14 @@ import {
   ASSISTANT_NAME,
   getTriggerPattern,
   TRIGGER_PATTERN,
-} from './config.js';
+} from '../src/config.js';
 import {
   escapeXml,
   formatMessages,
   formatOutbound,
   stripInternalTags,
-} from './router.js';
-import { NewMessage } from './types.js';
+} from '../src/router.js';
+import { NewMessage } from '../src/types.js';
 
 function makeMsg(overrides: Partial<NewMessage> = {}): NewMessage {
   return {

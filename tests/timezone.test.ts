@@ -4,7 +4,7 @@ import {
   formatLocalTime,
   isValidTimezone,
   resolveTimezone,
-} from './timezone.js';
+} from '../src/timezone.js';
 
 // --- formatLocalTime ---
 
