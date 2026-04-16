@@ -25,7 +25,7 @@
 #### 4. 其他
 - [ ] **LongMemEval 词项匹配版消融实验**：差最后一组基线数据
 - [ ] **SWE-Bench**：验证 Ralph 链路的代码修复能力
-- [ ] **钉钉端到端验证**：黑盒测试通过 claw 验证通过，但钉钉群触发未验证
+- [ ] **钉钉端到端验证**：黑盒测试通过 cli 验证通过，但钉钉群触发未验证
 
 ### 已完成
 
@@ -56,7 +56,7 @@ agent 的能力分三层，只有 Extension 层允许自修改：
 
 | 层 | 内容 | agent 可修改 |
 |---|------|------------|
-| **Claw** | 宿主进程 `src/` | 否（跑在容器外） |
+| **ShogAgent** | 宿主进程 `src/` | 否（跑在容器外） |
 | **Agent** | runner 代码、pi SDK | 否（镜像内只读） |
 | **Extension** | skills、extensions、AGENTS.md、prompts | 是 |
 
@@ -100,7 +100,7 @@ Channel 接口声明能力（`handlesOwnTrigger`、`setTyping`、`syncGroups`）
 
 - 不是架构限制——每个 group 都有自己的 conversations 和 memory，技术上可以独立复盘
 - 是实际需求不足——当前普通 group 数量少、对话量不大，单独跑一个容器做进化投入产出不合理
-- 主 claw 有全局视角（只读挂载了所有 group 的 conversations），可以统一复盘，发现问题通过 delegate_task 让普通 group 自己改进
+- 主 cli 有全局视角（只读挂载了所有 group 的 conversations），可以统一复盘，发现问题通过 delegate_task 让普通 group 自己改进
 
 等 group 数量和对话量增长后，可以给每个 group 注册独立的 evolution-loop。
 
@@ -348,27 +348,27 @@ Act（行动）
 
 #### 设计思路
 
-用户只与主 claw 交互，主 claw 在后台按需创建和调度内部 agent。每个 agent 是持久实体（非一次性 sub-agent），有独立容器、独立 AGENTS.md、独立记忆，长期积累专长。
+用户只与主 cli 交互，主 cli 在后台按需创建和调度内部 agent。每个 agent 是持久实体（非一次性 sub-agent），有独立容器、独立 AGENTS.md、独立记忆，长期积累专长。
 
 与单 agent 的 sub-agent 模式的本质区别：**sub-agent 是函数调用（无状态、用完即弃），持久 agent 是团队成员（有记忆、会成长）。**
 
 #### 架构
 
 ```
-用户 @主claw："帮我做一期关于 AI Agent 的内容"
+用户 @主cli："帮我做一期关于 AI Agent 的内容"
   │
   ▼
-主 claw（容器 A）
+主 cli（容器 A）
   → 拆分任务
   → delegate_task("researcher", "找3个热门话题")
   │
   ▼
 宿主进程路由
   → 启动 researcher 容器（独立上下文）
-  → 返回结果给主 claw
+  → 返回结果给主 cli
   │
   ▼
-主 claw 继续
+主 cli 继续
   → delegate_task("writer", "基于话题写文章")
   → delegate_task("reviewer", "审稿润色")
   → 在群里发最终成品
@@ -379,8 +379,8 @@ Act（行动）
 | | 普通 group | 内部 agent |
 |---|---|---|
 | 绑定 channel | 是（钉钉/WhatsApp） | 否（纯内部） |
-| 触发方式 | 用户发消息 | 主 claw 调 `delegate_task` |
-| 结果去向 | 发回聊天群 | 返回给主 claw |
+| 触发方式 | 用户发消息 | 主 cli 调 `delegate_task` |
+| 结果去向 | 发回聊天群 | 返回给主 cli |
 | 持久化 | `groups/{name}/` | `groups/{name}/`（一样） |
 | 有记忆/skills | 是 | 是（独立积累） |
 
@@ -442,20 +442,20 @@ Act（行动）
 
 **日期：** 2026-03-24
 
-> **已过时：** #20 去中心化后，每个 group 独立进化，不再由主 claw 统一复盘。但主 group 仍然挂载了所有 group 的 `conversations/`（只读），这个基础设施保留了，主 claw 需要时可以读取。
+> **已过时：** #20 去中心化后，每个 group 独立进化，不再由主 cli 统一复盘。但主 group 仍然挂载了所有 group 的 `conversations/`（只读），这个基础设施保留了，主 cli 需要时可以读取。
 
 原方案设计见下（留作参考）：
 
 <details>
 <summary>原方案详情</summary>
 
-原版 evolution loop 只复盘主 claw 自己的对话记录，对内部 agent 的表现一无所知。需要让主 claw 在进化时拥有全局视角。
+原版 evolution loop 只复盘主 cli 自己的对话记录，对内部 agent 的表现一无所知。需要让主 cli 在进化时拥有全局视角。
 
 考虑过三个方案：
 
 1. **每个 group 独立 evolution** — 当时否决（认为内部 agent 缺乏用户反馈信号）→ #20 最终采用了这个方案
-2. **delegate_task 让 agent 先自评，主 claw 汇总** — 否决：串行阻塞
-3. **主 claw 直接读所有 agent 的对话记录** — 当时采用 → #20 后不再是主要方式
+2. **delegate_task 让 agent 先自评，主 cli 汇总** — 否决：串行阻塞
+3. **主 cli 直接读所有 agent 的对话记录** — 当时采用 → #20 后不再是主要方式
 
 </details>
 
