@@ -33,6 +33,6 @@ groups/
 .claude/settings.local.json
 
 # Skills system (local per-installation state)
-.shogclaw/
+.shog-agent/
 
 agents-sdk-docs
