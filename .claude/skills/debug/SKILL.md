@@ -127,11 +127,11 @@ docker run --rm --entrypoint /bin/bash shog-agent-agent:latest -c '
 
 ## CLI Testing
 
-Use `scripts/claw.ts` to test agents from the terminal:
+Use `scripts/cli.ts` to test agents from the terminal:
 
 ```bash
-npx tsx scripts/claw.ts --list-groups
-npx tsx scripts/claw.ts -g <group> "your prompt"
+npx tsx scripts/cli.ts --list-groups
+npx tsx scripts/cli.ts -g <group> "your prompt"
 ```
 
 ## Rebuilding
