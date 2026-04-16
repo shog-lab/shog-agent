@@ -13,7 +13,7 @@ import path from 'path';
 // ── Paths ──
 
 const PROJECT_ROOT = path.resolve(
-  process.env.SHOGCLAW_DIR || path.join(import.meta.dirname, '..'),
+  process.env.SHOG_AGENT_DIR || path.join(import.meta.dirname, '..'),
 );
 const DB_PATH = path.join(PROJECT_ROOT, 'data', 'messages.db');
 const ENV_FILE = path.join(PROJECT_ROOT, '.env');
@@ -21,8 +21,8 @@ const DATA_DIR = path.join(PROJECT_ROOT, 'data');
 const GROUPS_DIR = path.join(PROJECT_ROOT, 'groups');
 const IMAGE = process.env.CONTAINER_IMAGE || 'shog-agent:latest';
 
-const OUTPUT_START = '---SHOGCLAW_OUTPUT_START---';
-const OUTPUT_END = '---SHOGCLAW_OUTPUT_END---';
+const OUTPUT_START = '---SHOG_OUTPUT_START---';
+const OUTPUT_END = '---SHOG_OUTPUT_END---';
 
 // ── .env reader ──
 
