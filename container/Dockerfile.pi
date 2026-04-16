@@ -1,4 +1,4 @@
-# ShogClaw Agent Container (pi-coding-agent edition)
+# ShogAgent Container (pi-coding-agent edition)
 # Runs pi-coding-agent in isolated Linux VM with browser automation
 
 FROM node:22-slim

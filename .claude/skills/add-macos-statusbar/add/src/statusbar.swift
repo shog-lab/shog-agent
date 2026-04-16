@@ -5,9 +5,9 @@ class StatusBarController: NSObject {
     private var isRunning = false
     private var timer: Timer?
 
-    private let plistPath = "\(NSHomeDirectory())/Library/LaunchAgents/com.shogclaw.plist"
+    private let plistPath = "\(NSHomeDirectory())/Library/LaunchAgents/com.shog-agent.plist"
 
-    /// Derive the ShogClaw project root from the binary location.
+    /// Derive the ShogAgent project root from the binary location.
     /// The binary is compiled to {project}/dist/statusbar, so the parent of
     /// the parent directory is the project root.
     private static let projectRoot: String = {
@@ -34,20 +34,20 @@ class StatusBarController: NSObject {
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
-            if let image = NSImage(systemSymbolName: "bolt.fill", accessibilityDescription: "ShogClaw") {
+            if let image = NSImage(systemSymbolName: "bolt.fill", accessibilityDescription: "ShogAgent") {
                 image.isTemplate = true
                 button.image = image
             } else {
                 button.title = "⚡"
             }
-            button.toolTip = "ShogClaw"
+            button.toolTip = "ShogAgent"
         }
     }
 
     private func checkRunning() -> Bool {
         let task = Process()
         task.launchPath = "/bin/launchctl"
-        task.arguments = ["list", "com.shogclaw"]
+        task.arguments = ["list", "com.shog-agent"]
         let pipe = Pipe()
         task.standardOutput = pipe
         task.standardError = Pipe()
@@ -68,7 +68,7 @@ class StatusBarController: NSObject {
         let dot = "● "
         let dotColor: NSColor = isRunning ? .systemGreen : .systemRed
         let attr = NSMutableAttributedString(string: dot, attributes: [.foregroundColor: dotColor])
-        let label = isRunning ? "ShogClaw is running" : "ShogClaw is stopped"
+        let label = isRunning ? "ShogAgent is running" : "ShogAgent is stopped"
         attr.append(NSAttributedString(string: label, attributes: [.foregroundColor: NSColor.labelColor]))
         statusItem.attributedTitle = attr
         statusItem.isEnabled = false
@@ -111,12 +111,12 @@ class StatusBarController: NSObject {
 
     @objc private func restartService() {
         let uid = getuid()
-        run("/bin/launchctl", ["kickstart", "-k", "gui/\(uid)/com.shogclaw"])
+        run("/bin/launchctl", ["kickstart", "-k", "gui/\(uid)/com.shog-agent"])
         refresh(after: 3)
     }
 
     @objc private func viewLogs() {
-        let logPath = "\(StatusBarController.projectRoot)/logs/shogclaw.log"
+        let logPath = "\(StatusBarController.projectRoot)/logs/shog-agent.log"
         NSWorkspace.shared.open(URL(fileURLWithPath: logPath))
     }
 
