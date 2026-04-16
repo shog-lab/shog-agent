@@ -22,11 +22,8 @@
 #### 3. 自进化闭环
 - [ ] **主 group 管理 ShogAgent 代码**：shog 通过 exec_ralph 改 ShogAgent 自身代码（wiki-config.json 折中方案已实现，完整版需要 codeRepos 挂载 + Ralph 链路）
 
-#### 4. Pi 替代 Claude Code 做 Ralph 执行者
-- [ ] **容器内执行**：pi-coding-agent 在容器内直接跑 Ralph，不穿透宿主进程，共享 credential proxy 鉴权
-- [ ] **物理隔离**：目标 repo 通过 volume mount 进容器，SSH key 只读挂载，用容器边界替代 prompt 约束
-- [ ] **repo 兼容性由 repo 维护者自行处理**（.claude/.pi 配置不在 ShogAgent 侧解决）
-- 时机：Claude Code 额度受限或容器化隔离需求增强时启动
+#### 4. 迁移到 pi-coding-agent RPC 模式
+详见 [RPC_MIGRATION.md](RPC_MIGRATION.md)。
 
 #### 5. 其他
 - [ ] **LongMemEval 词项匹配版消融实验**：差最后一组基线数据
