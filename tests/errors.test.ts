@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { ErrorCode, makeError, isError } from './errors.js';
+import { ErrorCode, makeError, isError } from '../src/errors.js';
 
 describe('makeError', () => {
   it('creates error with code and message', () => {

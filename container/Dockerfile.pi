@@ -49,6 +49,7 @@ COPY pi-agent-runner/ ./
 COPY skills/ /app/skills/
 COPY schema/ /app/schema/
 COPY wiki-config.json /app/wiki-config.json
+COPY system-prompt.md /app/system-prompt.md
 
 # Install extensions with npm dependencies (before switching to non-root user)
 COPY extensions/ /tmp/extensions/

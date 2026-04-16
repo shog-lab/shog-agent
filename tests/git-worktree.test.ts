@@ -8,7 +8,7 @@ import {
   ensureBranch,
   createWorktree,
   removeWorktree,
-} from './git-worktree.js';
+} from '../src/git-worktree.js';
 
 let repoDir: string;
 

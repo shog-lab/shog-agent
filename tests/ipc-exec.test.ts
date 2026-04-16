@@ -13,11 +13,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 
-import { processTaskIpc, type IpcDeps } from './ipc.js';
+import { processTaskIpc, type IpcDeps } from '../src/ipc.js';
 
 // Mock claude-code to avoid spawning real processes
-vi.mock('./claude-code.js', async () => {
-  const actual = (await vi.importActual('./claude-code.js')) as any;
+vi.mock('../src/claude-code.js', async () => {
+  const actual = (await vi.importActual('../src/claude-code.js')) as any;
   return {
     ...actual,
     // Keep validateRepo real — it tests actual git operations
@@ -118,7 +118,7 @@ describe('IPC exec_ralph integration', () => {
       deps,
     );
     // Should log warning and not call execRalph
-    const { execRalph } = await import('./claude-code.js');
+    const { execRalph } = await import('../src/claude-code.js');
     expect(execRalph).not.toHaveBeenCalled();
   });
 
@@ -130,7 +130,7 @@ describe('IPC exec_ralph integration', () => {
       false,
       deps,
     );
-    const { execRalph } = await import('./claude-code.js');
+    const { execRalph } = await import('../src/claude-code.js');
     expect(execRalph).not.toHaveBeenCalled();
   });
 
@@ -159,7 +159,7 @@ describe('IPC exec_ralph integration', () => {
       deps,
     );
 
-    const { execRalph } = await import('./claude-code.js');
+    const { execRalph } = await import('../src/claude-code.js');
     expect(execRalph).not.toHaveBeenCalled();
   });
 
@@ -180,7 +180,7 @@ describe('IPC exec_ralph integration', () => {
       deps,
     );
 
-    const { execRalph } = await import('./claude-code.js');
+    const { execRalph } = await import('../src/claude-code.js');
     expect(execRalph).not.toHaveBeenCalled();
   });
 
@@ -199,7 +199,7 @@ describe('IPC exec_ralph integration', () => {
       deps,
     );
 
-    const { execRalph } = await import('./claude-code.js');
+    const { execRalph } = await import('../src/claude-code.js');
     expect(execRalph).toHaveBeenCalledWith(
       expect.objectContaining({
         repo: repoDir,
@@ -238,7 +238,7 @@ describe('IPC exec_ralph integration', () => {
       deps,
     );
 
-    const { execRalph } = await import('./claude-code.js');
+    const { execRalph } = await import('../src/claude-code.js');
     expect(execRalph).toHaveBeenCalledWith(
       expect.objectContaining({ iterations: 5 }),
     );
@@ -270,7 +270,7 @@ describe('IPC exec_claude integration', () => {
       false,
       deps,
     );
-    const { execClaude } = await import('./claude-code.js');
+    const { execClaude } = await import('../src/claude-code.js');
     expect(execClaude).not.toHaveBeenCalled();
   });
 
@@ -282,7 +282,7 @@ describe('IPC exec_claude integration', () => {
       false,
       deps,
     );
-    const { execClaude } = await import('./claude-code.js');
+    const { execClaude } = await import('../src/claude-code.js');
     expect(execClaude).not.toHaveBeenCalled();
   });
 
@@ -300,7 +300,7 @@ describe('IPC exec_claude integration', () => {
       deps,
     );
 
-    const { execClaude } = await import('./claude-code.js');
+    const { execClaude } = await import('../src/claude-code.js');
     expect(execClaude).toHaveBeenCalledWith(
       expect.objectContaining({
         repo: repoDir,
@@ -325,7 +325,7 @@ describe('IPC exec_claude integration', () => {
       deps,
     );
 
-    const { execClaude } = await import('./claude-code.js');
+    const { execClaude } = await import('../src/claude-code.js');
     expect(execClaude).toHaveBeenCalledWith(
       expect.objectContaining({
         branch: 'ralph/feature',
@@ -362,7 +362,7 @@ describe('IPC exec_claude integration', () => {
       deps,
     );
 
-    const { execClaude } = await import('./claude-code.js');
+    const { execClaude } = await import('../src/claude-code.js');
     expect(execClaude).toHaveBeenCalledWith(
       expect.objectContaining({ timeout: 15 * 60 * 1000 }),
     );
