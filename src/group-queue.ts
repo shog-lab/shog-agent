@@ -1,8 +1,7 @@
 import { ChildProcess } from 'child_process';
-import fs from 'fs';
-import path from 'path';
+import type { Writable } from 'stream';
 
-import { DATA_DIR, MAX_CONCURRENT_CONTAINERS } from './config.js';
+import { MAX_CONCURRENT_CONTAINERS } from './config.js';
 import { logger } from './logger.js';
 
 interface QueuedTask {
@@ -22,6 +21,7 @@ interface GroupState {
   pendingMessages: boolean;
   pendingTasks: QueuedTask[];
   process: ChildProcess | null;
+  stdin: Writable | null;
   containerName: string | null;
   groupFolder: string | null;
   retryCount: number;
@@ -46,6 +46,7 @@ export class GroupQueue {
         pendingMessages: false,
         pendingTasks: [],
         process: null,
+        stdin: null,
         containerName: null,
         groupFolder: null,
         retryCount: 0,
@@ -137,6 +138,7 @@ export class GroupQueue {
   ): void {
     const state = this.getGroup(groupJid);
     state.process = proc;
+    state.stdin = proc.stdin;
     state.containerName = containerName;
     if (groupFolder) state.groupFolder = groupFolder;
   }
@@ -154,7 +156,7 @@ export class GroupQueue {
   }
 
   /**
-   * Send a follow-up message to the active container via IPC file.
+   * Send a follow-up message to the active container via RPC stdin.
    * Returns true if the message was written, false if no active container.
    */
   sendMessage(
@@ -163,20 +165,22 @@ export class GroupQueue {
     images?: Array<{ data: string; mimeType: string }>,
   ): boolean {
     const state = this.getGroup(groupJid);
-    if (!state.active || !state.groupFolder || state.isTaskContainer)
-      return false;
+    if (!state.active || !state.stdin || state.isTaskContainer) return false;
     state.idleWaiting = false; // Agent is about to receive work, no longer idle
 
-    const inputDir = path.join(DATA_DIR, 'ipc', state.groupFolder, 'input');
     try {
-      fs.mkdirSync(inputDir, { recursive: true });
-      const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}.json`;
-      const filepath = path.join(inputDir, filename);
-      const tempPath = `${filepath}.tmp`;
-      const payload: Record<string, unknown> = { type: 'message', text };
-      if (images?.length) payload.images = images;
-      fs.writeFileSync(tempPath, JSON.stringify(payload));
-      fs.renameSync(tempPath, filepath);
+      const command: Record<string, unknown> = {
+        type: 'follow_up',
+        message: text,
+      };
+      if (images?.length) {
+        command.images = images.map((img) => ({
+          type: 'image',
+          data: img.data,
+          mimeType: img.mimeType,
+        }));
+      }
+      state.stdin.write(JSON.stringify(command) + '\n');
       return true;
     } catch {
       return false;
@@ -184,16 +188,14 @@ export class GroupQueue {
   }
 
   /**
-   * Signal the active container to wind down by writing a close sentinel.
+   * Signal the active container to wind down by sending an abort command via RPC stdin.
    */
   closeStdin(groupJid: string): void {
     const state = this.getGroup(groupJid);
-    if (!state.active || !state.groupFolder) return;
+    if (!state.stdin) return;
 
-    const inputDir = path.join(DATA_DIR, 'ipc', state.groupFolder, 'input');
     try {
-      fs.mkdirSync(inputDir, { recursive: true });
-      fs.writeFileSync(path.join(inputDir, '_close'), '');
+      state.stdin.write(JSON.stringify({ type: 'abort' }) + '\n');
     } catch {
       // ignore
     }
@@ -230,6 +232,7 @@ export class GroupQueue {
     } finally {
       state.active = false;
       state.process = null;
+      state.stdin = null;
       state.containerName = null;
       state.groupFolder = null;
       this.activeCount--;
@@ -259,6 +262,7 @@ export class GroupQueue {
       state.isTaskContainer = false;
       state.runningTaskId = null;
       state.process = null;
+      state.stdin = null;
       state.containerName = null;
       state.groupFolder = null;
       this.activeCount--;

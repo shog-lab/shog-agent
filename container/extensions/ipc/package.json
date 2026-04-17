@@ -1,0 +1,8 @@
+{
+  "name": "ipc-extension",
+  "private": true,
+  "dependencies": {
+    "@sinclair/typebox": "^0.34.14",
+    "cron-parser": "^5.0.6"
+  }
+}

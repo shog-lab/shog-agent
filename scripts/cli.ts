@@ -21,8 +21,6 @@ const DATA_DIR = path.join(PROJECT_ROOT, 'data');
 const GROUPS_DIR = path.join(PROJECT_ROOT, 'groups');
 const IMAGE = process.env.CONTAINER_IMAGE || 'shog-agent:latest';
 
-const OUTPUT_START = '---SHOG_OUTPUT_START---';
-const OUTPUT_END = '---SHOG_OUTPUT_END---';
 
 // ── .env reader ──
 
@@ -114,6 +112,7 @@ function buildContainerArgs(
   folder: string,
   isMain: boolean,
   image: string,
+  chatJid: string,
 ): string[] {
   const args = [runtime, 'run', '-i', '--rm'];
   const groupDir = path.join(GROUPS_DIR, folder);
@@ -123,7 +122,7 @@ function buildContainerArgs(
   // Ensure directories exist
   fs.mkdirSync(groupDir, { recursive: true });
   fs.mkdirSync(groupPiDir, { recursive: true });
-  for (const sub of ['messages', 'tasks', 'input']) {
+  for (const sub of ['messages', 'tasks']) {
     fs.mkdirSync(path.join(ipcDir, sub), { recursive: true });
   }
 
@@ -141,6 +140,9 @@ function buildContainerArgs(
   args.push('-e', 'TZ=Asia/Shanghai');
   args.push('-e', 'ANTHROPIC_BASE_URL=http://host.docker.internal:3001');
   args.push('-e', 'ANTHROPIC_API_KEY=placeholder');
+  args.push('-e', `CHAT_JID=${chatJid}`);
+  args.push('-e', `GROUP_FOLDER=${folder}`);
+  args.push('-e', `IS_MAIN=${isMain}`);
   for (const [key, val] of Object.entries(env)) {
     if (val) args.push('-e', `${key}=${val}`);
   }
@@ -193,7 +195,7 @@ function buildContainerArgs(
 
 function runContainer(
   args: string[],
-  payload: object,
+  prompt: string,
   timeout: number,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -201,10 +203,11 @@ function runContainer(
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
-    proc.stdin.write(JSON.stringify(payload));
-    proc.stdin.end();
+    // Send RPC prompt command (do NOT close stdin — pi needs it open)
+    proc.stdin.write(JSON.stringify({ type: 'prompt', message: prompt }) + '\n');
 
-    let stdout = '';
+    let lineBuffer = '';
+    let resultText = '';
     let done = false;
     let timer: ReturnType<typeof setTimeout>;
 
@@ -218,43 +221,37 @@ function runContainer(
     });
 
     proc.stdout.on('data', (data) => {
-      stdout += data.toString();
+      lineBuffer += data.toString();
+      const lines = lineBuffer.split('\n');
+      lineBuffer = lines.pop() || '';
 
-      // Check for complete output block
-      const startIdx = stdout.indexOf(OUTPUT_START);
-      const endIdx = stdout.indexOf(OUTPUT_END, startIdx);
-      if (startIdx !== -1 && endIdx !== -1 && !done) {
-        done = true;
-        clearTimeout(timer);
-
-        const jsonStr = stdout
-          .slice(startIdx + OUTPUT_START.length, endIdx)
-          .trim();
+      for (const line of lines) {
+        if (!line.trim()) continue;
         try {
-          const result = JSON.parse(jsonStr);
-          if (result.status === 'success') {
-            if (result.result) console.log(result.result);
-            if (result.newSessionId) {
-              console.error(`[session: ${result.newSessionId}]`);
-            }
-          } else {
-            console.error(`[${result.status}] ${result.error || ''}`);
+          const event = JSON.parse(line);
+          // Accumulate assistant text from text_delta events
+          if (event.type === 'message_update' && event.assistantMessageEvent?.type === 'text_delta') {
+            resultText += event.assistantMessageEvent.delta;
+          }
+          // agent_end = agent finished processing the prompt
+          if (event.type === 'agent_end' && !done) {
+            done = true;
+            clearTimeout(timer);
+            if (resultText) console.log(resultText);
+            proc.stdin.end();
+            proc.kill('SIGTERM');
+            setTimeout(() => proc.kill('SIGKILL'), 5000);
           }
         } catch {
-          console.log(jsonStr);
+          // Non-JSON line, ignore
         }
-
-        // Kill container — event loop keeps it alive
-        proc.kill('SIGTERM');
-        setTimeout(() => proc.kill('SIGKILL'), 5000);
       }
     });
 
     proc.on('close', () => {
       clearTimeout(timer);
-      if (!done) {
-        // No structured output, print raw
-        if (stdout.trim()) console.log(stdout.trim());
+      if (!done && resultText) {
+        console.log(resultText);
       }
       resolve();
     });
@@ -379,6 +376,7 @@ async function main() {
     group!.folder,
     group!.isMain,
     IMAGE,
+    group!.jid,
   );
 
   if (verbose) {
@@ -387,15 +385,7 @@ async function main() {
 
   console.error(`[${group!.name}] running via ${runtime}...`);
 
-  const payload: Record<string, unknown> = {
-    prompt,
-    groupFolder: group!.folder,
-    chatJid: group!.jid,
-    isMain: group!.isMain,
-  };
-  if (sessionId) payload.sessionId = sessionId;
-
-  await runContainer(containerArgs, payload, timeout);
+  await runContainer(containerArgs, prompt, timeout);
 }
 
 main().catch((err) => {
