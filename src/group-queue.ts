@@ -170,7 +170,7 @@ export class GroupQueue {
 
     try {
       const command: Record<string, unknown> = {
-        type: 'follow_up',
+        type: 'prompt',
         message: text,
       };
       if (images?.length) {
