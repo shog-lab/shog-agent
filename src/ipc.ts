@@ -8,8 +8,6 @@ import { AvailableGroup } from './container-runner.js';
 import { createTask, deleteTask, getTaskById, updateTask } from './db.js';
 import { isValidGroupFolder } from './group-folder.js';
 import { logger } from './logger.js';
-import { execClaude, execRalph, validateRepo } from './claude-code.js';
-import { ErrorCode, makeError } from './errors.js';
 import { RegisteredGroup } from './types.js';
 
 export interface IpcDeps {
@@ -205,14 +203,6 @@ export async function processTaskIpc(
     // For delegate_task
     requestId?: string;
     agent?: string;
-    // For exec_ralph / exec_claude
-    repo?: string;
-    feature?: string;
-    iterations?: number;
-    prdPath?: string;
-    context?: string;
-    branch?: string; // For exec_claude: run on this branch
-    useWorktree?: boolean; // For exec_claude: false = run directly in repo
   },
   sourceGroup: string, // Verified identity from IPC directory
   isMain: boolean, // Verified from directory path
@@ -602,117 +592,6 @@ export async function processTaskIpc(
           });
       }
       break;
-
-    case 'exec_ralph': {
-      if (!data.repo || !data.feature) {
-        logger.warn({ data }, 'exec_ralph: missing repo or feature');
-        break;
-      }
-
-      const repo = data.repo as string;
-      const feature = data.feature as string;
-      const requestId = data.requestId as string;
-      const resolvedRepo = fs.existsSync(repo) ? fs.realpathSync(repo) : repo;
-
-      // Set up response file
-      const responseDir = path.join(DATA_DIR, 'ipc', sourceGroup, 'ralph');
-      fs.mkdirSync(responseDir, { recursive: true });
-      const responseFile = requestId
-        ? path.join(responseDir, `${requestId}.response.json`)
-        : null;
-
-      // Resolve group config
-      const registeredGroups = deps.registeredGroups();
-      const sourceGroupEntry = Object.values(registeredGroups).find(
-        (g) => g.folder === sourceGroup,
-      );
-      const allowedRepos = sourceGroupEntry?.containerConfig?.codeRepos ?? [];
-      const governance = sourceGroupEntry?.containerConfig?.governance;
-      const maxIter = governance?.maxIterations ?? 20;
-      const iterations = Math.min(Number(data.iterations) || 10, maxIter);
-      const validationError = validateRepo(resolvedRepo, allowedRepos);
-      if (validationError) {
-        logger.warn({ repo: resolvedRepo }, `exec_ralph: ${validationError}`);
-        if (responseFile) {
-          const tempFile = `${responseFile}.tmp`;
-          fs.writeFileSync(
-            tempFile,
-            JSON.stringify(makeError(ErrorCode.PERMISSION, validationError)),
-          );
-          fs.renameSync(tempFile, responseFile);
-        }
-        break;
-      }
-
-      execRalph({
-        repo: resolvedRepo,
-        feature,
-        iterations,
-        prdPath: data.prdPath as string | undefined,
-        context: data.context as string | undefined,
-        sourceGroup,
-        responseFile,
-        timeout: governance?.ralphTimeoutMinutes
-          ? governance.ralphTimeoutMinutes * 60 * 1000
-          : undefined,
-        riskThreshold: governance?.riskThreshold,
-      });
-
-      break;
-    }
-
-    case 'exec_claude': {
-      if (!data.repo || !data.prompt) {
-        logger.warn({ data }, 'exec_claude: missing repo or prompt');
-        break;
-      }
-
-      const repo = data.repo as string;
-      const requestId = data.requestId as string;
-      const resolvedRepo = fs.existsSync(repo) ? fs.realpathSync(repo) : repo;
-
-      const responseDir = path.join(DATA_DIR, 'ipc', sourceGroup, 'claude');
-      fs.mkdirSync(responseDir, { recursive: true });
-      const responseFile = requestId
-        ? path.join(responseDir, `${requestId}.response.json`)
-        : null;
-
-      // Validate repo (whitelist + clean working tree)
-      const registeredGroups = deps.registeredGroups();
-      const sourceGroupEntry = Object.values(registeredGroups).find(
-        (g) => g.folder === sourceGroup,
-      );
-      const allowedRepos = sourceGroupEntry?.containerConfig?.codeRepos ?? [];
-      const validationError = validateRepo(resolvedRepo, allowedRepos);
-      if (validationError) {
-        logger.warn({ repo: resolvedRepo }, `exec_claude: ${validationError}`);
-        if (responseFile) {
-          const tempFile = `${responseFile}.tmp`;
-          fs.writeFileSync(
-            tempFile,
-            JSON.stringify(makeError(ErrorCode.PERMISSION, validationError)),
-          );
-          fs.renameSync(tempFile, responseFile);
-        }
-        break;
-      }
-
-      const claudeGovernance = sourceGroupEntry?.containerConfig?.governance;
-      execClaude({
-        repo: resolvedRepo,
-        prompt: data.prompt,
-        branch: data.branch as string | undefined,
-        useWorktree: data.useWorktree as boolean | undefined,
-        sourceGroup,
-        responseFile,
-        timeout: claudeGovernance?.claudeTimeoutMinutes
-          ? claudeGovernance.claudeTimeoutMinutes * 60 * 1000
-          : undefined,
-        riskThreshold: claudeGovernance?.riskThreshold,
-      });
-
-      break;
-    }
 
     default:
       logger.warn({ type: data.type }, 'Unknown IPC task type');
