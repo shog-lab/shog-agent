@@ -297,10 +297,11 @@ describe('GroupQueue', () => {
     queue.enqueueMessageCheck('group1@g.us');
     await vi.advanceTimersByTimeAsync(10);
 
-    // Register a process so closeStdin has a groupFolder
+    // Register a process with mock stdin
+    const mockStdin = { write: vi.fn(), end: vi.fn() };
     queue.registerProcess(
       'group1@g.us',
-      {} as any,
+      { stdin: mockStdin } as any,
       'container-1',
       'test-group',
     );
@@ -309,12 +310,11 @@ describe('GroupQueue', () => {
     const taskFn = vi.fn(async () => {});
     queue.enqueueTask('group1@g.us', 'task-1', taskFn);
 
-    // _close should NOT have been written (container is working, not idle)
-    const writeFileSync = vi.mocked(fs.default.writeFileSync);
-    const closeWrites = writeFileSync.mock.calls.filter(
-      (call) => typeof call[0] === 'string' && call[0].endsWith('_close'),
+    // abort should NOT have been sent (container is working, not idle)
+    const abortWrites = mockStdin.write.mock.calls.filter(
+      (call) => typeof call[0] === 'string' && call[0].includes('"abort"'),
     );
-    expect(closeWrites).toHaveLength(0);
+    expect(abortWrites).toHaveLength(0);
 
     resolveProcess!();
     await vi.advanceTimersByTimeAsync(10);
@@ -337,34 +337,33 @@ describe('GroupQueue', () => {
     queue.enqueueMessageCheck('group1@g.us');
     await vi.advanceTimersByTimeAsync(10);
 
-    // Register process and mark idle
+    // Register process with mock stdin and mark idle
+    const mockStdin = { write: vi.fn(), end: vi.fn() };
     queue.registerProcess(
       'group1@g.us',
-      {} as any,
+      { stdin: mockStdin } as any,
       'container-1',
       'test-group',
     );
     queue.notifyIdle('group1@g.us');
 
     // Clear previous writes, then enqueue a task
-    const writeFileSync = vi.mocked(fs.default.writeFileSync);
-    writeFileSync.mockClear();
+    mockStdin.write.mockClear();
 
     const taskFn = vi.fn(async () => {});
     queue.enqueueTask('group1@g.us', 'task-1', taskFn);
 
-    // _close SHOULD have been written (container is idle)
-    const closeWrites = writeFileSync.mock.calls.filter(
-      (call) => typeof call[0] === 'string' && call[0].endsWith('_close'),
+    // abort SHOULD have been sent (container is idle)
+    const abortWrites = mockStdin.write.mock.calls.filter(
+      (call) => typeof call[0] === 'string' && call[0].includes('"abort"'),
     );
-    expect(closeWrites).toHaveLength(1);
+    expect(abortWrites).toHaveLength(1);
 
     resolveProcess!();
     await vi.advanceTimersByTimeAsync(10);
   });
 
   it('sendMessage resets idleWaiting so a subsequent task enqueue does not preempt', async () => {
-    const fs = await import('fs');
     let resolveProcess: () => void;
 
     const processMessages = vi.fn(async () => {
@@ -377,9 +376,11 @@ describe('GroupQueue', () => {
     queue.setProcessMessagesFn(processMessages);
     queue.enqueueMessageCheck('group1@g.us');
     await vi.advanceTimersByTimeAsync(10);
+
+    const mockStdin = { write: vi.fn(), end: vi.fn() };
     queue.registerProcess(
       'group1@g.us',
-      {} as any,
+      { stdin: mockStdin } as any,
       'container-1',
       'test-group',
     );
@@ -391,16 +392,15 @@ describe('GroupQueue', () => {
     queue.sendMessage('group1@g.us', 'hello');
 
     // Task enqueued after message reset — should NOT preempt (agent is working)
-    const writeFileSync = vi.mocked(fs.default.writeFileSync);
-    writeFileSync.mockClear();
+    mockStdin.write.mockClear();
 
     const taskFn = vi.fn(async () => {});
     queue.enqueueTask('group1@g.us', 'task-1', taskFn);
 
-    const closeWrites = writeFileSync.mock.calls.filter(
-      (call) => typeof call[0] === 'string' && call[0].endsWith('_close'),
+    const abortWrites = mockStdin.write.mock.calls.filter(
+      (call) => typeof call[0] === 'string' && call[0].includes('"abort"'),
     );
-    expect(closeWrites).toHaveLength(0);
+    expect(abortWrites).toHaveLength(0);
 
     resolveProcess!();
     await vi.advanceTimersByTimeAsync(10);
@@ -434,7 +434,6 @@ describe('GroupQueue', () => {
   });
 
   it('preempts when idle arrives with pending tasks', async () => {
-    const fs = await import('fs');
     let resolveProcess: () => void;
 
     const processMessages = vi.fn(async () => {
@@ -450,33 +449,31 @@ describe('GroupQueue', () => {
     queue.enqueueMessageCheck('group1@g.us');
     await vi.advanceTimersByTimeAsync(10);
 
-    // Register process and enqueue a task (no idle yet — no preemption)
+    // Register process with mock stdin and enqueue a task (no idle yet — no preemption)
+    const mockStdin = { write: vi.fn(), end: vi.fn() };
     queue.registerProcess(
       'group1@g.us',
-      {} as any,
+      { stdin: mockStdin } as any,
       'container-1',
       'test-group',
     );
 
-    const writeFileSync = vi.mocked(fs.default.writeFileSync);
-    writeFileSync.mockClear();
-
     const taskFn = vi.fn(async () => {});
     queue.enqueueTask('group1@g.us', 'task-1', taskFn);
 
-    let closeWrites = writeFileSync.mock.calls.filter(
-      (call) => typeof call[0] === 'string' && call[0].endsWith('_close'),
+    let abortWrites = mockStdin.write.mock.calls.filter(
+      (call) => typeof call[0] === 'string' && call[0].includes('"abort"'),
     );
-    expect(closeWrites).toHaveLength(0);
+    expect(abortWrites).toHaveLength(0);
 
     // Now container becomes idle — should preempt because task is pending
-    writeFileSync.mockClear();
+    mockStdin.write.mockClear();
     queue.notifyIdle('group1@g.us');
 
-    closeWrites = writeFileSync.mock.calls.filter(
-      (call) => typeof call[0] === 'string' && call[0].endsWith('_close'),
+    abortWrites = mockStdin.write.mock.calls.filter(
+      (call) => typeof call[0] === 'string' && call[0].includes('"abort"'),
     );
-    expect(closeWrites).toHaveLength(1);
+    expect(abortWrites).toHaveLength(1);
 
     resolveProcess!();
     await vi.advanceTimersByTimeAsync(10);

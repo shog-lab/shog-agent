@@ -2,9 +2,6 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { EventEmitter } from 'events';
 import { PassThrough } from 'stream';
 
-// Sentinel markers must match container-runner.ts
-const OUTPUT_START_MARKER = '---SHOG_OUTPUT_START---';
-const OUTPUT_END_MARKER = '---SHOG_OUTPUT_END---';
 
 // Mock config
 vi.mock('../src/config.js', () => ({
@@ -102,12 +99,18 @@ const testInput = {
   isMain: false,
 };
 
-function emitOutputMarker(
+function emitRpcResponse(
   proc: ReturnType<typeof createFakeProcess>,
-  output: ContainerOutput,
+  text: string,
 ) {
-  const json = JSON.stringify(output);
-  proc.stdout.push(`${OUTPUT_START_MARKER}\n${json}\n${OUTPUT_END_MARKER}\n`);
+  // Simulate RPC event stream: text_delta events followed by agent_end
+  if (text) {
+    proc.stdout.push(JSON.stringify({
+      type: 'message_update',
+      assistantMessageEvent: { type: 'text_delta', delta: text },
+    }) + '\n');
+  }
+  proc.stdout.push(JSON.stringify({ type: 'agent_end' }) + '\n');
 }
 
 describe('container-runner timeout behavior', () => {
@@ -129,12 +132,8 @@ describe('container-runner timeout behavior', () => {
       onOutput,
     );
 
-    // Emit output with a result
-    emitOutputMarker(fakeProc, {
-      status: 'success',
-      result: 'Here is my response',
-      newSessionId: 'session-123',
-    });
+    // Emit RPC response
+    emitRpcResponse(fakeProc, 'Here is my response');
 
     // Let output processing settle
     await vi.advanceTimersByTimeAsync(10);
@@ -150,7 +149,6 @@ describe('container-runner timeout behavior', () => {
 
     const result = await resultPromise;
     expect(result.status).toBe('success');
-    expect(result.newSessionId).toBe('session-123');
     expect(onOutput).toHaveBeenCalledWith(
       expect.objectContaining({ result: 'Here is my response' }),
     );
@@ -188,12 +186,8 @@ describe('container-runner timeout behavior', () => {
       onOutput,
     );
 
-    // Emit output
-    emitOutputMarker(fakeProc, {
-      status: 'success',
-      result: 'Done',
-      newSessionId: 'session-456',
-    });
+    // Emit RPC response
+    emitRpcResponse(fakeProc, 'Done');
 
     await vi.advanceTimersByTimeAsync(10);
 
@@ -204,6 +198,5 @@ describe('container-runner timeout behavior', () => {
 
     const result = await resultPromise;
     expect(result.status).toBe('success');
-    expect(result.newSessionId).toBe('session-456');
   });
 });
