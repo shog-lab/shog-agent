@@ -37,7 +37,7 @@ RUN npm install -g agent-browser
 WORKDIR /app
 
 # Copy package files first for better caching
-COPY pi-agent-runner/package*.json ./
+COPY package.json ./
 
 # Install dependencies
 RUN npm install

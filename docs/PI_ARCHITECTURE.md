@@ -20,34 +20,35 @@
 详见 [ENGINEERING_QUALITY.md](ENGINEERING_QUALITY.md)。
 
 #### 3. 自进化闭环
-- [ ] **主 group 管理 ShogAgent 代码**：shog 通过 exec_ralph 改 ShogAgent 自身代码（wiki-config.json 折中方案已实现，完整版需要 codeRepos 挂载 + Ralph 链路）
+- [ ] **主 group 管理 ShogAgent 代码**：shog 通过 L2 Repo Agent 改 ShogAgent 自身代码（wiki-config.json 折中方案已实现，完整版需要 codeRepos 挂载）
 
-#### 4. 迁移到 pi-coding-agent RPC 模式
-详见 [RPC_MIGRATION.md](RPC_MIGRATION.md)。
-
-#### 5. 其他
+#### 4. 其他
 - [ ] **LongMemEval 词项匹配版消融实验**：差最后一组基线数据
-- [ ] **SWE-Bench**：验证 Ralph 链路的代码修复能力
+- [ ] **SWE-Bench**：验证 L2 Repo Agent 的代码修复能力
 - [ ] **钉钉端到端验证**：黑盒测试通过 cli 验证通过，但钉钉群触发未验证
 
 ### 已完成
 
 - ~~OneCLI 集成~~ → 已删除，用 native credential proxy
 - ~~每个 group 独立进化~~ → 已集中到主 group（daily-review + autoresearch-loop）
-- ~~coding pipeline（容器内写代码）~~ → 丢弃，改用 Ralph 调宿主 Claude Code
+- ~~coding pipeline（容器内写代码）~~ → 丢弃，现由 L1→L2 双层 agent 在容器内完成
 - ~~FTS5 全文搜索~~ → 已实现
 - ~~向量搜索~~ → 已实现（Ollama nomic-embed-text）
 - ~~L1 分层加载~~ → 已实现（preference/decision/fact，2000 tokens）
 - ~~知识图谱~~ → 已实现（auto-extract + 手动 triples）
-- ~~Ralph 集成~~ → exec_ralph（worktree 隔离）+ exec_claude（direct/worktree）
+- ~~Ralph 集成~~ → 已删除 exec_ralph/exec_claude，改用 L1→L2 双层 agent 架构
 - ~~LLM Wiki~~ → 统一记忆系统（wiki/ + raw/ + schema/，自动修复 frontmatter，[[link]] 互联）
-- ~~黑盒测试~~ → exec_claude direct mode + agent-browser + artifacts 目录
+- ~~黑盒测试~~ → L2 Repo Agent + agent-browser + artifacts 目录
 - ~~code-patrol~~ → 定时巡检 + 用户许可后触发修复
 - ~~LLM Wiki 纳入记忆~~ → 已实现（多目录扫描）
 - ~~Runtime self-improvement~~ → 已加入系统提示
 - ~~任务评估（task-logs）~~ → 已加入系统提示
 - ~~类型权重 / 动态条数 / 过期衰减~~ → 已实现
 - ~~pidfile 防重复进程~~ → 已实现
+- ~~RPC 迁移~~ → 容器入口改为 `pi --mode rpc`，宿主通过 RPC JSON 协议通信
+- ~~exec_ralph / exec_claude~~ → 已删除，L1 通过 Bash 工具直接启动 L2（`pi -p`）
+- ~~risk-scorer / verify-command~~ → 已删除，物理容器隔离替代代码级安全检查
+- ~~pi-agent-runner 自定义主循环~~ → 已删除（index.ts, ipc-tools.ts, web-tools.ts），改用 pi 内建 RPC 模式 + extensions
 
 ---
 
@@ -59,8 +60,8 @@ agent 的能力分三层，只有 Extension 层允许自修改：
 
 | 层 | 内容 | agent 可修改 |
 |---|------|------------|
-| **ShogAgent** | 宿主进程 `src/` | 否（跑在容器外） |
-| **Agent** | runner 代码、pi SDK | 否（镜像内只读） |
+| **ShogAgent** | 宿主进程 `src/`，通过 RPC JSON 协议与容器通信 | 否（跑在容器外） |
+| **Agent** | pi-coding-agent（`pi --mode rpc`）、pi SDK | 否（镜像内只读） |
 | **Extension** | skills、extensions、AGENTS.md、prompts | 是 |
 
 ### 内建 vs 自创的双层模式
@@ -119,7 +120,7 @@ Channel 接口声明能力（`handlesOwnTrigger`、`setTyping`、`syncGroups`）
 | 模型 | Claude (Anthropic API) | `.env` 的 `MODEL` 配置（默认 gpt-5.2-codex） |
 | 认证方式 | Anthropic API Key + Credential Proxy | OAuth (auth.json) |
 | 消息渠道 | WhatsApp (Baileys) | 钉钉 (Stream SDK) / 微信 (iLink Bot API) |
-| Agent Runner | `container/agent-runner/` | `container/pi-agent-runner/` |
+| Agent Runner | `container/agent-runner/` | `pi --mode rpc`（pi 内建 RPC 模式，无自定义 runner） |
 | Dockerfile | `container/Dockerfile` | `container/Dockerfile.pi` |
 | Skills 发现 | MCP Server | DefaultResourceLoader |
 | 记忆系统 | archiveTranscript（全量 dump） | mem extension（选择性） + archiveTranscript（审计） |
@@ -131,8 +132,9 @@ Channel 接口声明能力（`handlesOwnTrigger`、`setTyping`、`syncGroups`）
 
 | 宿主机源码 | 容器内路径 | 说明 |
 |---|---|---|
-| `container/pi-agent-runner/` | `/app/` | agent runner 代码（预编译） |
+| `container/pi-agent-runner/package.json` | `/app/` | 安装 pi-coding-agent（仅 package.json，无自定义代码） |
 | `container/skills/` | `/app/skills/` | 内建 skills |
+| `container/system-prompt.md` | `/app/system-prompt.md` | 系统提示模板 |
 
 运行时（docker run -v 挂载，每次启动时映射）：
 
@@ -149,7 +151,7 @@ Channel 接口声明能力（`handlesOwnTrigger`、`setTyping`、`syncGroups`）
 | 改什么 | 怎么更新 |
 |--------|---------|
 | 宿主进程（`src/`） | 改代码 → 重启 `npm run dev` |
-| 容器代码（`container/`） | 改代码 → `./container/build.sh pi` |
+| 容器内容（skills、extensions、system-prompt） | 改代码 → `./container/build.sh pi` |
 | 模型/凭证（`.env`） | 改配置 → 重启宿主进程 |
 | OAuth 登录 | `pi /login openai-codex`（仅首次或 token 失效时） |
 
@@ -162,21 +164,28 @@ Channel 接口声明能力（`handlesOwnTrigger`、`setTyping`、`syncGroups`）
 | `src/index.ts` | 主入口：状态管理、消息循环、agent 调度 |
 | `src/channels/dingtalk.ts` | 钉钉 WebSocket 连接和消息收发 |
 | `src/channels/weixin.ts` | 微信 iLink Bot API 长轮询消息收发 |
-| `src/container-runner.ts` | 构建挂载、启动容器、收集输出 |
+| `src/container-runner.ts` | 构建挂载、启动容器、RPC 协议通信（stdin/stdout JSON） |
 | `src/router.ts` | 消息格式化和出站路由 |
 | `src/config.ts` | 触发词、路径、超时等配置 |
 | `src/db.ts` | SQLite 操作（消息、group 注册、图片缓存） |
 | `src/task-scheduler.ts` | 定时任务调度 |
 
-**容器进程：**
+**容器进程（`pi --mode rpc`，无自定义 runner 代码）：**
 
 | 文件 | 职责 |
 |---|---|
-| `container/pi-agent-runner/src/index.ts` | 容器主入口：创建 pi session、提示循环、IPC 轮询 |
-| `container/pi-agent-runner/src/ipc-tools.ts` | IPC 自定义工具（send_message, schedule_task 等） |
-| `container/pi-agent-runner/src/web-tools.ts` | 联网工具（web_search, web_fetch） |
+| `container/system-prompt.md` | 系统提示模板（宿主进程注入变量后传给 pi） |
+| `container/extensions/ipc/` | IPC pi extension（send_message, schedule_task 等） |
+| `container/extensions/web/` | 联网 pi extension（web_search, web_fetch） |
 | `container/extensions/memory/index.ts` | 长期记忆 extension |
 | `container/skills/agent-browser/SKILL.md` | 浏览器自动化 skill |
+
+**双层 agent 架构：**
+
+| 层级 | 启动方式 | 工作目录 | 能力 |
+|---|---|---|---|
+| L1 (Group Agent) | `pi --mode rpc` | `/workspace/group` | memory/ipc/web extensions，skills |
+| L2 (Repo Agent) | `pi -p`（L1 通过 Bash 工具启动） | 目标仓库 | memory/web extensions（无 ipc），共享 L1 的 skills |
 
 **数据和配置：**
 
@@ -391,7 +400,7 @@ Act（行动）
 
 | 文件 | 改动 |
 |------|------|
-| `container/pi-agent-runner/src/ipc-tools.ts` | 新增 `create_agent` 和 `delegate_task` 工具（主 group 专属） |
+| `container/extensions/ipc/` | `create_agent` 和 `delegate_task` 工具（主 group 专属，现为 pi extension） |
 | `src/ipc.ts` | 处理 `create_agent`（创建目录 + 写 AGENTS.md + 注册）和 `delegate_task`（启动容器 + 写回结果） |
 | `src/index.ts` | 实现 `createInternalAgent` 和 `runDelegatedAgent` 回调 |
 
@@ -473,6 +482,6 @@ Act（行动）
 | 文件 | 改动 |
 |------|------|
 | `src/index.ts` | 移除 `ensureEvolutionTask` 硬编码注册 |
-| `container/pi-agent-runner/src/index.ts` | system prompt 精简为不可变基础 |
+| `container/system-prompt.md` | system prompt 精简为不可变基础（原 pi-agent-runner 代码已删除） |
 | `container/templates/AGENTS.md` | 新 group 的 AGENTS.md 模板，含自进化指引 |
 | `src/container-runner.ts` | 不覆盖已存在的 skills/extensions，保护 agent 自改 |

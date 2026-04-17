@@ -1,10 +1,14 @@
 # ShogAgent
 
-Memory-driven AI agent platform with LLM Wiki, self-evolution, and Claude Code integration. See [docs/PI_ARCHITECTURE.md](docs/PI_ARCHITECTURE.md) for architecture and changelog.
+Memory-driven AI agent platform with LLM Wiki, self-evolution, and pi-coding-agent RPC integration. See [docs/PI_ARCHITECTURE.md](docs/PI_ARCHITECTURE.md) for architecture and changelog.
 
 ## Quick Context
 
-Single Node.js process with plugin channels (DingTalk, WeChat). Messages route to pi-coding-agent running in Docker containers. Each group has isolated filesystem and memory. Agent self-evolves via evolution skill.
+Single Node.js process with plugin channels (DingTalk, WeChat). Messages route via RPC JSON protocol to pi-coding-agent running in Docker containers. Each group has isolated filesystem and memory. Agent self-evolves via evolution skill.
+
+Two-layer agent architecture:
+- **L1 (Group Agent)**: `pi --mode rpc` in container, manages memory/dialog/decisions
+- **L2 (Repo Agent)**: `pi -p` spawned by L1 via Bash, executes code changes in target repos
 
 ## Key Files
 
@@ -14,15 +18,16 @@ Single Node.js process with plugin channels (DingTalk, WeChat). Messages route t
 | `src/channels/dingtalk.ts` | DingTalk WebSocket channel |
 | `src/channels/weixin.ts` | WeChat iLink Bot API channel |
 | `src/channels/registry.ts` | Channel registry (self-registration at startup) |
-| `src/ipc.ts` | IPC watcher and task processing |
-| `src/claude-code.ts` | Host-side Claude Code execution (execRalph + execClaude) |
+| `src/ipc.ts` | IPC watcher (send_message, schedule_task) |
 | `src/router.ts` | Message formatting and outbound routing |
 | `src/config.ts` | Trigger pattern, paths, intervals |
-| `src/container-runner.ts` | Spawns agent containers with mounts |
+| `src/container-runner.ts` | Spawns containers, RPC JSON protocol |
+| `src/group-queue.ts` | Container lifecycle, follow-up via stdin |
 | `src/task-scheduler.ts` | Runs scheduled tasks |
 | `src/db.ts` | SQLite operations |
-| `container/pi-agent-runner/` | Container-side agent runner (pi-coding-agent) |
-| `container/skills/` | Skills loaded inside agent containers |
+| `container/extensions/` | Pi extensions (memory, ipc, web, jimeng, ralph) |
+| `container/skills/` | Built-in skills loaded inside containers |
+| `container/system-prompt.md` | System prompt (injected via --append-system-prompt) |
 | `groups/{name}/AGENTS.md` | Per-group agent persona (isolated) |
 
 ## Credentials
