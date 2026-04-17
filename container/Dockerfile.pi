@@ -42,9 +42,6 @@ COPY pi-agent-runner/package*.json ./
 # Install dependencies
 RUN npm install
 
-# Copy source code
-COPY pi-agent-runner/ ./
-
 # Copy built-in skills and schema into the image
 COPY skills/ /app/skills/
 COPY schema/ /app/schema/
@@ -59,18 +56,15 @@ RUN for dir in /tmp/extensions/*/; do \
       fi; \
     done
 
-# Build TypeScript
-RUN npm run build
-
 # Allow extensions to resolve packages from /app/node_modules
 ENV NODE_PATH=/app/node_modules
+ENV PATH="/app/node_modules/.bin:${PATH}"
 
 # Create workspace directories
-RUN mkdir -p /workspace/group /workspace/global /workspace/extra /workspace/ipc/messages /workspace/ipc/tasks /workspace/ipc/input
+RUN mkdir -p /workspace/group /workspace/global /workspace/extra /workspace/ipc/messages /workspace/ipc/tasks
 
-# Create entrypoint script — syncs built-in extensions (source + node_modules) on every startup,
-# overwriting stale copies while preserving agent-created extensions (different names).
-RUN printf '#!/bin/bash\nset -e\n# Sync built-in extensions (overwrite stale copies)\nmkdir -p /home/node/.pi/agent/extensions\nfor dir in /tmp/extensions/*/; do\n  name=$(basename "$dir")\n  rm -rf "/home/node/.pi/agent/extensions/$name"\n  cp -r "$dir" "/home/node/.pi/agent/extensions/$name"\ndone\n# Sync global schema and wiki-config (no-clobber: group-specific files take precedence)\nmkdir -p /workspace/group/schema\ncp -n /app/schema/* /workspace/group/schema/ 2>/dev/null || true\ncp -n /app/wiki-config.json /workspace/group/wiki-config.json 2>/dev/null || true\ncat > /tmp/input.json\nnode /app/dist/index.js < /tmp/input.json\n' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
+# Create entrypoint script — syncs built-in extensions and launches pi in RPC mode.
+RUN printf '#!/bin/bash\nset -e\n# Sync built-in extensions (overwrite stale copies)\nmkdir -p /home/node/.pi/agent/extensions\nfor dir in /tmp/extensions/*/; do\n  name=$(basename "$dir")\n  rm -rf "/home/node/.pi/agent/extensions/$name"\n  cp -r "$dir" "/home/node/.pi/agent/extensions/$name"\ndone\n# Sync global schema and wiki-config (no-clobber: group-specific files take precedence)\nmkdir -p /workspace/group/schema\ncp -n /app/schema/* /workspace/group/schema/ 2>/dev/null || true\ncp -n /app/wiki-config.json /workspace/group/wiki-config.json 2>/dev/null || true\n# Symlink group skills into .pi directory for auto-discovery\nif [ -d /workspace/group/skills ]; then\n  mkdir -p /workspace/group/.pi\n  ln -sfn /workspace/group/skills /workspace/group/.pi/skills\nfi\n# Launch pi in RPC mode\nexec pi --mode rpc \\\n  --append-system-prompt "$(cat /app/system-prompt.md)" \\\n  --model "${MODEL:-openai-codex/gpt-5.4}"\n' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 
 # Set ownership to node user (non-root) for writable directories
 RUN chown -R node:node /workspace && chmod 777 /home/node
@@ -84,5 +78,5 @@ RUN mkdir -p /home/node/.pi/agent
 # Set working directory to group workspace
 WORKDIR /workspace/group
 
-# Entry point reads JSON from stdin, outputs JSON to stdout
+# Entry point: pi runs in RPC mode, reading JSON commands from stdin, emitting JSON events to stdout
 ENTRYPOINT ["/app/entrypoint.sh"]

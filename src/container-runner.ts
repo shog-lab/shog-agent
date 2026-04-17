@@ -32,10 +32,6 @@ import {
 } from './mount-security.js';
 import { RegisteredGroup } from './types.js';
 
-// Sentinel markers for robust output parsing (must match agent-runner)
-const OUTPUT_START_MARKER = '---SHOG_OUTPUT_START---';
-const OUTPUT_END_MARKER = '---SHOG_OUTPUT_END---';
-
 export interface ContainerInput {
   prompt: string;
   sessionId?: string;
@@ -182,7 +178,6 @@ function buildVolumeMounts(
   const groupIpcDir = resolveGroupIpcPath(group.folder);
   fs.mkdirSync(path.join(groupIpcDir, 'messages'), { recursive: true });
   fs.mkdirSync(path.join(groupIpcDir, 'tasks'), { recursive: true });
-  fs.mkdirSync(path.join(groupIpcDir, 'input'), { recursive: true });
   mounts.push({
     hostPath: groupIpcDir,
     containerPath: '/workspace/ipc',
@@ -216,6 +211,7 @@ function buildVolumeMounts(
 async function buildContainerArgs(
   mounts: VolumeMount[],
   containerName: string,
+  input: ContainerInput,
 ): Promise<string[]> {
   const args: string[] = ['run', '-i', '--rm', '--name', containerName];
 
@@ -253,6 +249,12 @@ async function buildContainerArgs(
     args.push('-e', `WECHAT_APPID=${wechatEnv.WECHAT_APPID}`);
   if (wechatEnv.WECHAT_SECRET)
     args.push('-e', `WECHAT_SECRET=${wechatEnv.WECHAT_SECRET}`);
+
+  // Pass container input metadata as env vars for pi RPC mode
+  args.push('-e', `CHAT_JID=${input.chatJid}`);
+  args.push('-e', `GROUP_FOLDER=${input.groupFolder}`);
+  args.push('-e', `IS_MAIN=${input.isMain}`);
+  args.push('-e', `ASSISTANT_NAME=${input.assistantName || ''}`);
 
   // Runtime-specific args for host gateway resolution
   args.push(...hostGatewayArgs());
@@ -294,7 +296,7 @@ export async function runContainerAgent(
   const mounts = buildVolumeMounts(group, input.isMain);
   const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
   const containerName = `shog-agent-${safeName}-${Date.now()}`;
-  const containerArgs = await buildContainerArgs(mounts, containerName);
+  const containerArgs = await buildContainerArgs(mounts, containerName, input);
 
   logger.debug(
     {
@@ -329,67 +331,87 @@ export async function runContainerAgent(
 
     onProcess(container, containerName);
 
-    let stdout = '';
     let stderr = '';
-    let stdoutTruncated = false;
     let stderrTruncated = false;
 
-    container.stdin.write(JSON.stringify(input));
-    container.stdin.end();
+    // RPC mode: send initial prompt command via stdin (do NOT close stdin)
+    const rpcPromptCmd: Record<string, unknown> = {
+      type: 'prompt',
+      message: input.prompt,
+    };
+    if (input.images?.length) {
+      rpcPromptCmd.images = input.images.map((img) => ({
+        type: 'image',
+        data: img.data,
+        mimeType: img.mimeType,
+      }));
+    }
+    container.stdin.write(JSON.stringify(rpcPromptCmd) + '\n');
 
-    // Streaming output: parse OUTPUT_START/END marker pairs as they arrive
-    let parseBuffer = '';
-    let newSessionId: string | undefined;
+    // Line-buffered JSON parsing for RPC stdout
+    let lineBuffer = '';
+    let accumulatedText = '';
+    let hadStreamingOutput = false;
     let outputChain = Promise.resolve();
 
     container.stdout.on('data', (data) => {
-      const chunk = data.toString();
+      lineBuffer += data.toString();
 
-      // Always accumulate for logging
-      if (!stdoutTruncated) {
-        const remaining = CONTAINER_MAX_OUTPUT_SIZE - stdout.length;
-        if (chunk.length > remaining) {
-          stdout += chunk.slice(0, remaining);
-          stdoutTruncated = true;
-          logger.warn(
-            { group: group.name, size: stdout.length },
-            'Container stdout truncated due to size limit',
-          );
-        } else {
-          stdout += chunk;
-        }
-      }
+      let newlineIdx: number;
+      while ((newlineIdx = lineBuffer.indexOf('\n')) !== -1) {
+        const line = lineBuffer.slice(0, newlineIdx).trim();
+        lineBuffer = lineBuffer.slice(newlineIdx + 1);
+        if (!line) continue;
 
-      // Stream-parse for output markers
-      if (onOutput) {
-        parseBuffer += chunk;
-        let startIdx: number;
-        while ((startIdx = parseBuffer.indexOf(OUTPUT_START_MARKER)) !== -1) {
-          const endIdx = parseBuffer.indexOf(OUTPUT_END_MARKER, startIdx);
-          if (endIdx === -1) break; // Incomplete pair, wait for more data
+        try {
+          const event = JSON.parse(line);
 
-          const jsonStr = parseBuffer
-            .slice(startIdx + OUTPUT_START_MARKER.length, endIdx)
-            .trim();
-          parseBuffer = parseBuffer.slice(endIdx + OUTPUT_END_MARKER.length);
-
-          try {
-            const parsed: ContainerOutput = JSON.parse(jsonStr);
-            if (parsed.newSessionId) {
-              newSessionId = parsed.newSessionId;
-            }
-            hadStreamingOutput = true;
-            // Activity detected — reset the hard timeout
-            resetTimeout();
-            // Call onOutput for all markers (including null results)
-            // so idle timers start even for "silent" query completions.
-            outputChain = outputChain.then(() => onOutput(parsed));
-          } catch (err) {
-            logger.warn(
-              { group: group.name, error: err },
-              'Failed to parse streamed output chunk',
-            );
+          // Accumulate text deltas from assistant messages
+          if (
+            event.type === 'message_update' &&
+            event.assistantMessageEvent?.type === 'text_delta'
+          ) {
+            accumulatedText += event.assistantMessageEvent.delta;
           }
+
+          // agent_end = agent finished processing (prompt or follow-up)
+          if (event.type === 'agent_end') {
+            hadStreamingOutput = true;
+            resetTimeout();
+
+            const text = accumulatedText;
+            accumulatedText = '';
+            if (onOutput) {
+              outputChain = outputChain.then(() =>
+                onOutput({
+                  status: 'success',
+                  result: text || null,
+                }),
+              );
+            }
+          }
+
+          // RPC error responses
+          if (event.type === 'response' && event.success === false) {
+            hadStreamingOutput = true;
+            resetTimeout();
+            const errorMsg = event.error || 'Unknown RPC error';
+            accumulatedText = '';
+            if (onOutput) {
+              outputChain = outputChain.then(() =>
+                onOutput({
+                  status: 'error',
+                  result: null,
+                  error: errorMsg,
+                }),
+              );
+            }
+          }
+        } catch (err) {
+          logger.warn(
+            { group: group.name, line, error: err },
+            'Failed to parse RPC stdout line',
+          );
         }
       }
     });
@@ -401,7 +423,6 @@ export async function runContainerAgent(
         if (line) logger.debug({ container: group.folder }, line);
       }
       // Don't reset timeout on stderr — SDK writes debug logs continuously.
-      // Timeout only resets on actual output (OUTPUT_MARKER in stdout).
       if (stderrTruncated) return;
       const remaining = CONTAINER_MAX_OUTPUT_SIZE - stderr.length;
       if (chunk.length > remaining) {
@@ -417,10 +438,9 @@ export async function runContainerAgent(
     });
 
     let timedOut = false;
-    let hadStreamingOutput = false;
     const configTimeout = group.containerConfig?.timeout || CONTAINER_TIMEOUT;
     // Grace period: hard timeout must be at least IDLE_TIMEOUT + 30s so the
-    // graceful _close sentinel has time to trigger before the hard kill fires.
+    // graceful abort has time to trigger before the hard kill fires.
     const timeoutMs = Math.max(configTimeout, IDLE_TIMEOUT + 30_000);
 
     const killOnTimeout = () => {
@@ -442,7 +462,6 @@ export async function runContainerAgent(
 
     let timeout = setTimeout(killOnTimeout, timeoutMs);
 
-    // Reset the timeout whenever there's activity (streaming output)
     const resetTimeout = () => {
       clearTimeout(timeout);
       timeout = setTimeout(killOnTimeout, timeoutMs);
@@ -468,9 +487,6 @@ export async function runContainerAgent(
           ].join('\n'),
         );
 
-        // Timeout after output = idle cleanup, not failure.
-        // The agent already sent its response; this is just the
-        // container being reaped after the idle period expired.
         if (hadStreamingOutput) {
           logger.info(
             { group: group.name, containerName, duration, code },
@@ -480,7 +496,6 @@ export async function runContainerAgent(
             resolve({
               status: 'success',
               result: null,
-              newSessionId,
             });
           });
           return;
@@ -511,7 +526,6 @@ export async function runContainerAgent(
         `IsMain: ${input.isMain}`,
         `Duration: ${duration}ms`,
         `Exit Code: ${code}`,
-        `Stdout Truncated: ${stdoutTruncated}`,
         `Stderr Truncated: ${stderrTruncated}`,
         ``,
       ];
@@ -519,16 +533,16 @@ export async function runContainerAgent(
       const isError = code !== 0;
 
       if (isVerbose || isError) {
-        // On error, log input metadata only — not the full prompt.
-        // Full input is only included at verbose level to avoid
-        // persisting user conversation content on every non-zero exit.
         if (isVerbose) {
-          logLines.push(`=== Input ===`, JSON.stringify(input, null, 2), ``);
+          logLines.push(
+            `=== Input Summary ===`,
+            `Prompt length: ${input.prompt.length} chars`,
+            ``,
+          );
         } else {
           logLines.push(
             `=== Input Summary ===`,
             `Prompt length: ${input.prompt.length} chars`,
-            `Session ID: ${input.sessionId || 'new'}`,
             ``,
           );
         }
@@ -546,15 +560,11 @@ export async function runContainerAgent(
           ``,
           `=== Stderr${stderrTruncated ? ' (TRUNCATED)' : ''} ===`,
           stderr,
-          ``,
-          `=== Stdout${stdoutTruncated ? ' (TRUNCATED)' : ''} ===`,
-          stdout,
         );
       } else {
         logLines.push(
           `=== Input Summary ===`,
           `Prompt length: ${input.prompt.length} chars`,
-          `Session ID: ${input.sessionId || 'new'}`,
           ``,
           `=== Mounts ===`,
           mounts
@@ -574,7 +584,6 @@ export async function runContainerAgent(
             code,
             duration,
             stderr,
-            stdout,
             logFile,
           },
           'Container exited with error',
@@ -588,69 +597,17 @@ export async function runContainerAgent(
         return;
       }
 
-      // Streaming mode: wait for output chain to settle, return completion marker
-      if (onOutput) {
-        outputChain.then(() => {
-          logger.info(
-            { group: group.name, duration, newSessionId },
-            'Container completed (streaming mode)',
-          );
-          resolve({
-            status: 'success',
-            result: null,
-            newSessionId,
-          });
-        });
-        return;
-      }
-
-      // Legacy mode: parse the last output marker pair from accumulated stdout
-      try {
-        // Extract JSON between sentinel markers for robust parsing
-        const startIdx = stdout.indexOf(OUTPUT_START_MARKER);
-        const endIdx = stdout.indexOf(OUTPUT_END_MARKER);
-
-        let jsonLine: string;
-        if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
-          jsonLine = stdout
-            .slice(startIdx + OUTPUT_START_MARKER.length, endIdx)
-            .trim();
-        } else {
-          // Fallback: last non-empty line (backwards compatibility)
-          const lines = stdout.trim().split('\n');
-          jsonLine = lines[lines.length - 1];
-        }
-
-        const output: ContainerOutput = JSON.parse(jsonLine);
-
+      // RPC mode: wait for output chain to settle
+      outputChain.then(() => {
         logger.info(
-          {
-            group: group.name,
-            duration,
-            status: output.status,
-            hasResult: !!output.result,
-          },
-          'Container completed',
+          { group: group.name, duration },
+          'Container completed (RPC mode)',
         );
-
-        resolve(output);
-      } catch (err) {
-        logger.error(
-          {
-            group: group.name,
-            stdout,
-            stderr,
-            error: err,
-          },
-          'Failed to parse container output',
-        );
-
         resolve({
-          status: 'error',
+          status: 'success',
           result: null,
-          error: `Failed to parse container output: ${err instanceof Error ? err.message : String(err)}`,
         });
-      }
+      });
     });
 
     container.on('error', (err) => {
