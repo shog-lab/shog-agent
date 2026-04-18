@@ -136,7 +136,7 @@ groups/dingtalk-shog/checkpoints/latest/metrics.json
 | Skill | 现状 | 调整 |
 |-------|------|------|
 | `daily-review` | 扫描对话和 task-logs，改 harness | 保留，移除 task-logs 相关逻辑（已删），加入日报产出 |
-| `autoresearch-loop` | 每周做检索质量实验 | 并入 weekly-review 的指标跑分环节 |
+| `autoresearch-loop` | 每周做检索质量实验 | 废弃，价值不高 |
 | `wiki-lint` | 每周检查 wiki 质量 | 保留，可作为 daily-review 的子步骤 |
 
 ## 实施顺序
@@ -144,5 +144,5 @@ groups/dingtalk-shog/checkpoints/latest/metrics.json
 1. 改造 `daily-review` skill：加入日报产出逻辑
 2. 创建 `weekly-review` skill：指标对比 + checkpoint 归档/回滚
 3. 创建 checkpoint 目录结构
-4. 将 `autoresearch-loop` 的指标逻辑并入 weekly-review
-5. 注册定时任务（daily 22:00，weekly 周日 21:00）
+4. 注册定时任务（daily 22:00，weekly 周日 21:00）
+5. 废弃 `autoresearch-loop` skill 和定时任务
