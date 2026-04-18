@@ -20,6 +20,7 @@
 详见 [ENGINEERING_QUALITY.md](ENGINEERING_QUALITY.md)。
 
 #### 3. 自进化闭环
+详见 [EVOLUTION.md](EVOLUTION.md)。
 - [ ] **主 group 管理 ShogAgent 代码**：shog 通过 L2 Repo Agent 改 ShogAgent 自身代码（wiki-config.json 折中方案已实现，完整版需要 codeRepos 挂载）
 
 #### 4. 其他
