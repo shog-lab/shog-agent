@@ -8,15 +8,43 @@
 
 ## 子 group 自优化（实时）
 
-每个 group 在执行任务过程中自行优化，不需要主 group 介入。
+每个 group 在每次对话结束后自动评估是否需要优化，不需要主 group 介入。
 
-**触发**：实时——执行任务时发现问题就改
+### 机制：Meta-skill + Hook
 
-**机制**：system prompt 中的 `Runtime self-improvement` 指令，让 agent 发现 skill 不好用时当场修 SKILL.md、发现可复用经验时写 wiki。
+两个组件配合：
 
-**范围**：只改自己的 skills 和 wiki，不改 AGENTS.md（人设变更由主 group 管理）。
+**1. Meta-skill（`container/skills/self-improve/SKILL.md`）**
 
-**不需要额外 skill**——这是 agent 的内建行为。
+所有 group 共享的内建 skill，定义自优化的 SOP：
+
+- **什么时机该优化**：skill 执行失败、用户纠正了错误行为、发现可复用的经验模式、相同问题反复出现
+- **优化什么**：
+  - 修 `skills/` 下的 SKILL.md（步骤错误、信息过时、缺少边界条件）
+  - 写 wiki（新发现的领域知识、用户偏好、项目约定）
+- **什么不能碰**：
+  - 不改 AGENTS.md（人设变更由主 group 管理）
+  - 不改内建 skills（`/app/skills/`，只读）
+  - 不改 extensions
+- **怎么改**：最小改动，只改有明确证据支持的部分，不做推测性优化
+
+**2. Hook extension（`container/extensions/self-improve/`）**
+
+pi extension，监听 `agent_end` 事件。每次对话结束后：
+
+1. 快速扫描本次对话，检测是否存在优化信号：
+   - 用户纠正（"不对"、"不是这样"、"你搞错了"）
+   - 任务失败或重试
+   - 用户明确要求记住某事
+   - skill 执行中遇到意外情况
+2. **无信号**：跳过，不产生额外开销
+3. **有信号**：向 agent 注入一条 `before_agent_start` 消息，提示按 self-improve skill 执行优化
+
+这样正常对话零开销，只在出现问题时才触发自优化。
+
+### 范围
+
+只改自己的 skills 和 wiki。AGENTS.md 的变更由主 group 在 weekly-review 中统一管理。
 
 ## 主 group 每周复盘（weekly-review）
 
@@ -43,8 +71,8 @@
 | | 子 group（自优化） | 主 group（weekly-review） |
 |---|---|---|
 | **改什么** | 自己的 skills、wiki | 任何 group 的 AGENTS.md、skills |
-| **触发** | 实时（执行中发现问题就改） | 定时（每周日） |
-| **依据** | 自己的执行经验 | 跨 group 的数据对比 |
+| **触发** | agent_end hook（有信号时） | 定时（每周日） |
+| **依据** | 本次对话的直接反馈 | 跨 group 的数据对比 |
 | **回滚** | 不回滚（小改动，错了下次改回来） | 指标驱动回滚（checkpoint 机制） |
 | **视角** | 单 group 领域知识 | 全局治理和兜底 |
 
@@ -135,14 +163,16 @@ groups/dingtalk-shog/checkpoints/latest/metrics.json
 
 | Skill | 现状 | 调整 |
 |-------|------|------|
-| `daily-review` | 扫描对话和 task-logs，改 harness | 废弃，子 group 实时自优化替代 |
+| `daily-review` | 扫描对话和 task-logs，改 harness | 废弃，self-improve hook 替代 |
 | `autoresearch-loop` | 每周做检索质量实验 | 废弃，价值不高 |
 | `wiki-lint` | 每周检查 wiki 质量 | 保留，可作为 weekly-review 的子步骤 |
 
 ## 实施顺序
 
-1. 创建 `weekly-review` skill：扫描对话 + 指标对比 + checkpoint 归档/回滚
-2. 创建 checkpoint 目录结构
-3. 注册定时任务（每周日 21:00）
-4. 各 group AGENTS.md 强调 Runtime self-improvement 行为
-5. 废弃 `daily-review` 和 `autoresearch-loop` skill 及定时任务
+1. 创建 `container/skills/self-improve/SKILL.md`（meta-skill，所有 group 共享）
+2. 创建 `container/extensions/self-improve/`（hook extension，监听 agent_end）
+3. 删除 system-prompt.md 中的 `Runtime self-improvement` 段落
+4. 创建 `weekly-review` skill（主 group 专用）
+5. 创建 checkpoint 目录结构
+6. 注册定时任务（每周日 21:00）
+7. 废弃 `daily-review` 和 `autoresearch-loop` skill 及定时任务
