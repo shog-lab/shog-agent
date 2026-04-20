@@ -14,7 +14,7 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 
-const IPC_DIR = "/workspace/ipc";
+const IPC_DIR = process.env.IPC_DIR || "/workspace/ipc";
 const TASKS_DIR = join(IPC_DIR, "tasks");
 
 interface AgentMessage {
