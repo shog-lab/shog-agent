@@ -5,35 +5,21 @@ description: Restart ShogAgent. Use when code changes need a restart, or the use
 
 # Restart ShogAgent
 
-Kill all existing ShogAgent processes and containers, then start fresh.
+ShogAgent is managed by PM2. Use PM2 commands to restart.
 
 ## Steps
 
-1. Kill existing processes and containers:
+1. Kill running containers and restart via PM2:
 
 ```bash
-kill $(ps aux | grep "tsx src/index.ts" | grep -v grep | awk '{print $2}') 2>/dev/null
 docker kill $(docker ps -q --filter "name=shog-agent") 2>/dev/null
+pm2 restart shog-agent
 ```
 
-2. Wait for cleanup:
+2. Verify:
 
 ```bash
-sleep 5
+pm2 status shog-agent
 ```
 
-3. Start dev server in background:
-
-```bash
-npm run dev
-```
-
-Run this as a background task so it doesn't block.
-
-4. Verify single process is running:
-
-```bash
-ps aux | grep "tsx src/index" | grep -v grep | wc -l
-```
-
-Should output `1`. If more than 1, kill all and retry.
+Should show `online`.
