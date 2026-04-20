@@ -15,7 +15,7 @@ import { MemoryCore } from "./core.js";
 
 // --- Config ---
 
-const GROUP_DIR = "/workspace/group";
+const GROUP_DIR = process.env.GROUP_DIR || "/workspace/group";
 const DB_PATH = join(GROUP_DIR, ".wiki-index.db");
 const LEGACY_MEMORY_DIR = join(GROUP_DIR, "memory");
 const LEGACY_LLM_WIKI_DIR = join(GROUP_DIR, "llm-wiki");
