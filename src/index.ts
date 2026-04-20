@@ -1003,6 +1003,9 @@ async function main(): Promise<void> {
       }
       return { status: 'success' as const, result: resultText };
     },
+    sendPromptToGroup: (groupJid, prompt) => {
+      return queue.sendMessage(groupJid, prompt);
+    },
   });
   queue.setProcessMessagesFn(processGroupMessages);
   recoverPendingMessages();

@@ -1,0 +1,6 @@
+{
+  "name": "shog-agent-self-improve",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Self-improvement hook for ShogAgent"
+}
