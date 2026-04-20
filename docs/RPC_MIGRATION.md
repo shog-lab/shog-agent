@@ -33,17 +33,20 @@
   L1 → L2: Bash 工具执行 `pi -p`，stdout 直接拿结果
 ```
 
-### L1 vs L2 职责
+### 三层 Agent 模型
 
-| | L1 (Group Agent) | L2 (Repo Agent) |
-|---|---|---|
-| 生命周期 | 常驻（IDLE_TIMEOUT 30 分钟） | 临时（单次任务，完成退出） |
-| cwd | `/workspace/group` | `/workspace/repos/{repo}` |
-| 记忆 | 有（memory extension + wiki） | 无 |
-| skills | group skills | 无（靠 repo 的 CLAUDE.md） |
-| 权限 | 读写 group 目录，只读 repo（system prompt 约束） | 读写目标 repo |
-| 启动方式 | 宿主 spawn 容器 + RPC | L1 Bash 工具 `pi -p` |
-| 超时 | 宿主控制 | L1 Bash timeout / skill 控制 |
+| | L1 (Group Agent) | L2 (Executor) | L3 (Local CLI) |
+|---|---|---|---|
+| **模式** | `pi --mode rpc`（容器内） | `pi -p`（容器内子进程） | `pi` 交互模式（本地） |
+| **谁控制** | 宿主进程 | L1 | 用户 |
+| **生命周期** | 常驻（IDLE_TIMEOUT 30 分钟） | 单次任务，完成退出 | 用户退出 |
+| **cwd** | `/workspace/group` | `/workspace/repos/{repo}` | repo 目录（本地路径） |
+| **Memory** | 读+写（memory extension） | 无 | 读+写（memory extension） |
+| **Skills** | group skills | repo skills（自动发现） | group + repo skills |
+| **Extensions** | memory / ipc / web / jimeng | web | memory + web |
+| **启动器** | 宿主 container-runner.ts | `run.sh`（ralph skill 等） | `shog.sh`（repo 里的脚本） |
+
+L1 和 L2 在同一个容器内。L3 在本地，不经过容器。
 
 ### 安全模型
 

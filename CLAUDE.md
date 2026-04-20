@@ -6,9 +6,10 @@ Memory-driven AI agent platform with LLM Wiki, self-evolution, and pi-coding-age
 
 Single Node.js process with plugin channels (DingTalk, WeChat). Messages route via RPC JSON protocol to pi-coding-agent running in Docker containers. Each group has isolated filesystem and memory. Agent self-evolves via evolution skill.
 
-Two-layer agent architecture:
+Three-layer agent architecture:
 - **L1 (Group Agent)**: `pi --mode rpc` in container, manages memory/dialog/decisions
-- **L2 (Repo Agent)**: `pi -p` spawned by L1 via Bash, executes code changes in target repos
+- **L2 (Executor)**: `pi -p` spawned by L1 via Bash, executes code tasks with repo skills
+- **L3 (Local CLI)**: `pi` interactive on host, user pair-programming with group memory + repo skills
 
 ## Key Files
 
