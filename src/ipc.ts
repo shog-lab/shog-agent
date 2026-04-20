@@ -33,6 +33,7 @@ export interface IpcDeps {
     result: string | null;
     error?: string;
   }>;
+  sendPromptToGroup?: (groupJid: string, prompt: string) => boolean;
 }
 
 let ipcWatcherRunning = false;
@@ -203,6 +204,9 @@ export async function processTaskIpc(
     // For delegate_task
     requestId?: string;
     agent?: string;
+    // For self_improve
+    signals?: string;
+    context?: string;
   },
   sourceGroup: string, // Verified identity from IPC directory
   isMain: boolean, // Verified from directory path
@@ -592,6 +596,36 @@ export async function processTaskIpc(
           });
       }
       break;
+
+    case 'self_improve': {
+      if (!data.signals || !data.context) break;
+
+      // Find the chat JID for this group
+      const groups = deps.registeredGroups();
+      const groupEntry = Object.entries(groups).find(
+        ([, g]) => g.folder === sourceGroup,
+      );
+      if (!groupEntry) {
+        logger.warn({ sourceGroup }, 'self_improve: group not found');
+        break;
+      }
+
+      const prompt = `[SELF-IMPROVE] 系统检测到优化信号：${data.signals}\n\n相关对话上下文：\n${data.context}\n\n请按 self-improve skill 的 SOP 执行优化。`;
+
+      const sent = deps.sendPromptToGroup?.(groupEntry[0], prompt);
+      if (sent) {
+        logger.info(
+          { sourceGroup, signals: data.signals },
+          'Self-improve prompt sent',
+        );
+      } else {
+        logger.warn(
+          { sourceGroup },
+          'self_improve: failed to send prompt (no active container)',
+        );
+      }
+      break;
+    }
 
     default:
       logger.warn({ type: data.type }, 'Unknown IPC task type');

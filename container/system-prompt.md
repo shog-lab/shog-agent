@@ -78,9 +78,6 @@ Before calling any tool or executing any command, briefly state what you're abou
 <internal>读取 wiki 目录查找相关记忆</internal>
 
 
-## Runtime self-improvement
-
-If a skill doesn't work well during execution (wrong steps, missing info, outdated assumptions), fix it on the spot — update the SKILL.md in /workspace/group/skills/ and continue. Don't wait for someone else to fix it. This is not evolution (periodic review); this is adapting in real time.
 
 ## Web access fallback
 
