@@ -181,12 +181,13 @@ Channel 接口声明能力（`handlesOwnTrigger`、`setTyping`、`syncGroups`）
 | `container/extensions/memory/index.ts` | 长期记忆 extension |
 | `container/skills/agent-browser/SKILL.md` | 浏览器自动化 skill |
 
-**双层 agent 架构：**
+**三层 agent 架构：**
 
-| 层级 | 启动方式 | 工作目录 | 能力 |
-|---|---|---|---|
-| L1 (Group Agent) | `pi --mode rpc` | `/workspace/group` | memory/ipc/web extensions，skills |
-| L2 (Repo Agent) | `pi -p`（L1 通过 Bash 工具启动） | 目标仓库 | memory/web extensions（无 ipc），共享 L1 的 skills |
+| 层级 | 模式 | 工作目录 | 谁控制 | Extensions | Skills |
+|---|---|---|---|---|---|
+| L1 (Group Agent) | `pi --mode rpc`（容器） | `/workspace/group` | 宿主进程 | memory/ipc/web/jimeng | group skills |
+| L2 (Executor) | `pi -p`（容器内子进程） | 目标仓库 | L1 | web | repo skills（自动发现） |
+| L3 (Local CLI) | `pi` 交互模式（本地） | repo 目录 | 用户 | memory + web | group + repo skills |
 
 **数据和配置：**
 
