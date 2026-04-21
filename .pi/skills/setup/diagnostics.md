@@ -40,7 +40,7 @@ rm /tmp/shog-agent-diagnostics.json
 **No**: `rm /tmp/shog-agent-diagnostics.json`
 
 **Never ask again**:
-1. Replace contents of `.claude/skills/setup/diagnostics.md` with `# Diagnostics — opted out`
-2. Replace contents of `.claude/skills/update-shog-agent/diagnostics.md` with `# Diagnostics — opted out`
-3. Remove the `## 9. Diagnostics` section from `.claude/skills/setup/SKILL.md` and the `## Diagnostics` section from `.claude/skills/update-shog-agent/SKILL.md`
+1. Replace contents of `.pi/skills/setup/diagnostics.md` with `# Diagnostics — opted out`
+2. Replace contents of `.pi/skills/update-shog-agent/diagnostics.md` with `# Diagnostics — opted out`
+3. Remove the `## 9. Diagnostics` section from `.pi/skills/setup/SKILL.md` and the `## Diagnostics` section from `.pi/skills/update-shog-agent/SKILL.md`
 4. `rm /tmp/shog-agent-diagnostics.json`

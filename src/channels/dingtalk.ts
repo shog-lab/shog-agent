@@ -69,11 +69,33 @@ export class DingTalkChannel implements Channel {
     this.opts = opts;
     this.appKey = appKey;
     this.appSecret = appSecret;
-    this.client = new DWClient({
-      clientId: appKey,
-      clientSecret: appSecret,
-      keepAlive: true,
-    });
+
+    const originalConsoleLog = console.log;
+    console.log = (...args: unknown[]) => {
+      const first = args[0];
+      if (
+        typeof first === 'object' &&
+        first !== null &&
+        'clientSecret' in first
+      ) {
+        const sanitized = { ...(first as Record<string, unknown>) };
+        sanitized.clientSecret = '[REDACTED]';
+        originalConsoleLog(sanitized, ...args.slice(1));
+        return;
+      }
+      originalConsoleLog(...args);
+    };
+
+    try {
+      this.client = new DWClient({
+        clientId: appKey,
+        clientSecret: appSecret,
+        keepAlive: true,
+      });
+    } finally {
+      console.log = originalConsoleLog;
+    }
+
     (this.client as unknown as { debug: boolean }).debug = false;
   }
 
