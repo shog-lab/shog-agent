@@ -13,11 +13,16 @@ if [ ! -d "$GROUP_DIR" ]; then
 fi
 
 SKILL_ARGS=()
+for skill_dir in "$SHOG_DIR/container/skills/"*/; do
+  [ -f "$skill_dir/SKILL.md" ] && SKILL_ARGS+=(--skill "$skill_dir")
+done
 for skill_dir in "$GROUP_DIR/skills/"*/; do
   [ -f "$skill_dir/SKILL.md" ] && SKILL_ARGS+=(--skill "$skill_dir")
 done
 
 pi --extension "$SHOG_DIR/container/extensions/memory" \
-   --extension "$SHOG_DIR/container/extensions/web" \
+   --extension "$SHOG_DIR/container/extensions/understand_image" \
+   --extension "$SHOG_DIR/container/extensions/web_search" \
    "${SKILL_ARGS[@]}" \
+   --append-system-prompt "$(cat "$SHOG_DIR/container/system-prompt.md")" \
    --append-system-prompt "$(cat "$GROUP_DIR/AGENTS.md")"

@@ -8,8 +8,7 @@
 | Non-main groups | Untrusted | Other users may be malicious |
 | Container agents | Sandboxed | Isolated execution environment |
 | Incoming messages | User input | Potential prompt injection |
-| exec_ralph | Sandboxed | Runs in git worktree, never touches main working tree |
-| exec_claude | Restricted | Direct mode: allowedTools whitelist; worktree mode: disallowedTools |
+| L2 executor | Restricted | Runs only inside mounted repos and inherits container mount permissions |
 
 ## Security Boundaries
 
@@ -43,42 +42,16 @@ private_key, .secret
 - `nonMainReadOnly` option forces read-only for non-main groups
 - `codeReposReadOnly` option for read-only code repo mounts
 
-### 3. Claude Code Execution Security
+### 3. Repo Execution Security
 
-Agent containers can trigger Claude Code on the host via IPC (`exec_ralph`, `exec_claude`). Multiple layers of protection:
+Code execution happens inside the group container via L2 (`pi -p`). Security comes from mount permissions and container isolation.
 
-**Validation (src/claude-code.ts):**
-- Repo must be in group's `codeRepos` whitelist
-- Working tree must be clean (tracked files only — untracked files ignored)
-- Risk scorer evaluates operation risk before execution
-
-**exec_ralph — worktree isolation:**
-- Creates a git worktree in a separate directory, never touches main working tree
-- Branch reuse for review→fix loops (same branch, fresh worktree)
-- Worktree auto-cleaned after execution (branch preserved for review)
-
-**exec_claude — two modes:**
-- **Worktree mode** (default): `--disallowedTools Write,Edit,NotebookEdit` — can read and run commands but cannot modify files
-- **Direct mode** (`useWorktree=false`): `--allowedTools` whitelist restricts to safe operations only (read, verify, browser). Used for black-box testing
-- Both modes: `--dangerously-skip-permissions` is safe because tool restrictions are enforced via allowedTools/disallowedTools
-
-**Tool whitelist (direct mode, src/verify-command.ts):**
-- Read tools: Read, Glob, Grep
-- Safe bash: cat, ls, head, tail, find, echo, wc, diff, grep, sort
-- Verify: pnpm test, npm test, pytest, cargo test, go test
-- Browser: agent-browser
-- Git read-only: git log, git diff, git show, git status
-- No: Write, Edit, rm, git push, git checkout, git reset
-
-**Risk scorer (src/risk-scorer.ts):**
-- 4-axis scoring: tool risk (1-5), file sensitivity (1-5), impact scope (1-5), reversibility (1-5)
-- Total 4-20: LOW (4-8) proceed, MEDIUM (9-14) warn, HIGH (15+) block
-- Configurable threshold via GovernanceConfig.riskThreshold
-- Sensitive file patterns: .env(5), package.json(4), Dockerfile(3), src/(2), test/(1)
-
-**Artifacts isolation:**
-- exec_claude direct mode stores screenshots in `groups/{group}/artifacts/`, not in repo
-- Auto-cleaned before each run
+**Protections:**
+- Repo must be in the group's `codeRepos` whitelist
+- L2 inherits the container's mount permissions and cannot write outside mounted repos
+- Read-only repo mounts remain read-only for both L1 and L2
+- L1 plans work, but repo writes are performed by L2
+- PRD / progress files are also written by L2 if they need to live inside the repo
 
 ### 4. Governance Config
 
@@ -86,10 +59,8 @@ Per-group execution constraints (`ContainerConfig.governance`):
 
 ```typescript
 {
-  maxIterations: 20,        // Ralph max iterations
-  ralphTimeoutMinutes: 60,  // Ralph timeout
-  claudeTimeoutMinutes: 30, // exec_claude timeout
-  riskThreshold: 15         // Block operations scoring above this
+  maxIterations: 20,
+  riskThreshold: 15
 }
 ```
 
@@ -114,7 +85,7 @@ Messages and task operations are verified against group identity:
 | Schedule task for others | ✓ | ✗ |
 | View all tasks | ✓ | Own only |
 | Manage other groups | ✓ | ✗ |
-| exec_ralph / exec_claude | ✓ | ✓ (own codeRepos only) |
+| L2 repo execution | ✓ | ✓ (own codeRepos only) |
 
 ### 7. Credential Isolation (Credential Proxy)
 
@@ -142,19 +113,18 @@ Real API credentials **never enter containers**. The container runner sets `ANTH
 │  • Mount validation (external allowlist)                         │
 │  • Container lifecycle                                           │
 │  • Credential proxy                                              │
-│  • Claude Code executor (exec_ralph / exec_claude)               │
-│    - Repo whitelist + dirty check + risk scorer                  │
-│    - Worktree isolation for Ralph                                │
-│    - AllowedTools whitelist for direct mode                      │
-│    - GovernanceConfig constraints                                │
-└─────────────┬──────────────────────────┬────────────────────────┘
-              │                          │
-              ▼ Explicit mounts only     ▼ Worktree (isolated)
-┌─────────────────────────┐  ┌────────────────────────────────────┐
-│  CONTAINER (SANDBOXED)  │  │  CLAUDE CODE (HOST, RESTRICTED)    │
-│  • Agent execution      │  │  • exec_ralph: worktree + branch   │
-│  • File ops (mounts)    │  │  • exec_claude: allowedTools only  │
-│  • API via proxy        │  │  • Artifacts → group/artifacts/    │
-│  • No real credentials  │  │  • Risk scored before execution    │
-└─────────────────────────┘  └────────────────────────────────────┘
+│  • Repo whitelist + mount validation                             │
+│  • Container lifecycle                                           │
+│  • GovernanceConfig constraints                                  │
+└───────────────────────────────┬──────────────────────────────────┘
+                                │
+                                ▼ Explicit mounts only
+┌──────────────────────────────────────────────────────────────────┐
+│  CONTAINER (SANDBOXED)                                          │
+│  • L1 plans                                                     │
+│  • L2 executes inside mounted repos                             │
+│  • File ops constrained by mount permissions                    │
+│  • API via proxy                                                │
+│  • No real credentials                                          │
+└──────────────────────────────────────────────────────────────────┘
 ```

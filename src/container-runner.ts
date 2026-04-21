@@ -57,6 +57,8 @@ interface VolumeMount {
   readonly: boolean;
 }
 
+const CROSS_GROUP_WRITABLE_PATHS = ['AGENTS.md', 'skills', 'memory'];
+
 function buildVolumeMounts(
   group: RegisteredGroup,
   isMain: boolean,
@@ -67,7 +69,7 @@ function buildVolumeMounts(
 
   if (isMain) {
     // Main gets the project root read-only. Writable paths the agent needs
-    // (group folder, IPC, .claude/) are mounted separately below.
+    // (group folder, IPC, project-local pi state) are mounted separately below.
     // Read-only prevents the agent from modifying host application code
     // (src/, dist/, package.json, etc.) which would bypass the sandbox
     // entirely on next restart.
@@ -95,18 +97,30 @@ function buildVolumeMounts(
       readonly: false,
     });
 
-    // Mount all other group directories so main group can read conversations
-    // and modify AGENTS.md, skills, and memory (evolution manager role).
+    // Mount all other group directories read-only for inspection.
+    // Only a small whitelist of governance paths is writable.
     try {
       for (const entry of fs.readdirSync(GROUPS_DIR, { withFileTypes: true })) {
         if (!entry.isDirectory()) continue;
         if (entry.name === group.folder || entry.name === 'global') continue;
         const otherGroupDir = path.join(GROUPS_DIR, entry.name);
+        const containerBase = `/workspace/agents/${entry.name}`;
+
         mounts.push({
           hostPath: otherGroupDir,
-          containerPath: `/workspace/agents/${entry.name}`,
-          readonly: false,
+          containerPath: containerBase,
+          readonly: true,
         });
+
+        for (const relativePath of CROSS_GROUP_WRITABLE_PATHS) {
+          const hostPath = path.join(otherGroupDir, relativePath);
+          if (!fs.existsSync(hostPath)) continue;
+          mounts.push({
+            hostPath,
+            containerPath: path.posix.join(containerBase, relativePath),
+            readonly: false,
+          });
+        }
       }
     } catch {
       /* ignore — best effort */
@@ -321,7 +335,7 @@ export async function runContainerAgent(
     'Spawning container agent',
   );
 
-  const logsDir = path.join(groupDir, 'logs');
+  const logsDir = path.join(groupDir, 'raw', 'logs');
   fs.mkdirSync(logsDir, { recursive: true });
 
   return new Promise((resolve) => {

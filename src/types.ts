@@ -32,16 +32,16 @@ export interface ContainerConfig {
   codeRepos?: string[]; // Absolute host paths to code repositories, mounted at /workspace/repos/{basename}
   codeReposReadOnly?: boolean; // Mount code repos as read-only (default: false)
   timeout?: number; // Default: 300000 (5 minutes)
-  governance?: GovernanceConfig; // Execution constraints for Claude Code / Ralph
+  governance?: GovernanceConfig; // Execution constraints for repo execution and task loops
 }
 
 export interface GovernanceConfig {
-  /** Max Ralph iterations per run (default: 20) */
+  /** Max task-loop iterations per run (default: 20) */
   maxIterations?: number;
-  /** Ralph timeout in minutes (default: 60) */
-  ralphTimeoutMinutes?: number;
-  /** exec_claude timeout in minutes (default: 30) */
-  claudeTimeoutMinutes?: number;
+  /** Task-loop timeout in minutes (default: 60) */
+  taskTimeoutMinutes?: number;
+  /** Executor timeout in minutes (default: 30) */
+  executorTimeoutMinutes?: number;
   /** Risk threshold — block operations with risk score above this (default: 15, range 4-20) */
   riskThreshold?: number;
 }

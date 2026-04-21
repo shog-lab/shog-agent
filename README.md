@@ -1,8 +1,8 @@
 # ShogAgent
 
-**AI agents that evolve themselves — powered by LLM Wiki + Claude Code.**
+**Memory-driven AI agent platform powered by LLM Wiki + pi-coding-agent.**
 
-Multi-agent platform where each agent maintains its own [LLM Wiki](https://github.com/luotwo/llm-wiki) (Karpathy's structured knowledge pattern), creates skills and extensions, and improves through self-reflection. Agents can invoke Claude Code on the host machine to write code, run tests, and verify results autonomously.
+Multi-agent platform where each agent maintains its own [LLM Wiki](https://github.com/luotwo/llm-wiki) (Karpathy's structured knowledge pattern), creates skills and extensions, and improves through self-reflection. Code tasks run through the L1 → L2 model: L1 plans, L2 executes inside mounted repos.
 
 ## How It Works
 
@@ -14,7 +14,7 @@ Multi-agent platform where each agent maintains its own [LLM Wiki](https://githu
 ┌──────────────────────▼──────────────────────────────────┐
 │  Host Process (Node.js)                                 │
 │  Message routing · Credential proxy · IPC · Scheduler   │
-│  Claude Code executor (Ralph + one-shot)                │
+│  Container orchestration                                │
 └──────────┬───────────┬───────────┬──────────────────────┘
            │           │           │
      ┌─────▼─────┐ ┌──▼────┐ ┌───▼─────┐
@@ -34,30 +34,29 @@ Each agent runs in its own container. They can only see what's explicitly mounte
 Every agent's knowledge is stored as an [LLM Wiki](https://github.com/luotwo/llm-wiki) — Karpathy's pattern of structured markdown files maintained by the LLM itself:
 
 - **wiki/** — compiled knowledge (flat .md files with frontmatter)
-- **raw/** — immutable source materials
+- **raw/** — source materials and operational traces (sources, conversations, logs, artifacts, images)
 - **schema/** — rules governing wiki quality
 
 Five-stage lifecycle: **Ingest** → **Compile** → **Query** → **Output** → **Lint**
 
 Pages interconnect via `[[links]]`. Search uses FTS5 + vector embeddings (Ollama). L1 memories (preferences, decisions, facts) are always injected; L2/L3 are retrieved by relevance. Knowledge graph triples enable temporal queries.
 
-## Claude Code Integration
+## Code Execution Model
 
-Agents can invoke Claude Code on the host machine through two mechanisms:
+Code tasks use a two-layer model:
 
-- **exec_ralph** — runs [Ralph](https://github.com/snarktank/ralph) (Claude Code in a loop) to implement PRDs. Isolated in git worktrees, never touches the main working tree.
-- **exec_claude** — one-shot Claude Code execution for code review, testing, and analysis. Direct mode for black-box testing with `allowedTools` whitelist.
+- **L1 (Group Agent)** plans, decomposes work, and prepares PRD / execution instructions
+- **L2 (Repo Sub-Agent / Executor)** runs inside the mounted repo as L1's execution sub-agent, writes PRD / progress files when needed, modifies code, and runs verification
 
-Full cycle: agent writes PRD → triggers Ralph → reviews code → runs black-box tests → feeds issues back for fixes → reports results.
+Rule: repo writes are done by L2, not by L1.
 
 ## Self-Evolution
 
 Agents improve themselves through an evolution loop:
 
-1. **daily-review** — Analyze conversations, identify what went well and what didn't, fix harness
-2. **autoresearch-loop** — Run experiments on retrieval quality and summary quality, keep or rollback
+1. **meta-triage** — Triage governance requests and reported issues from other groups
+2. **daily-audit** — Audit group changes and rollback bad ones
 3. **wiki-lint** — Check wiki quality: frontmatter, dedup, stale entries, broken links
-4. **code-patrol** — Proactively scan repo code for bugs and opportunities, report to user
 
 Agents can also create skills and extensions at runtime:
 - **Skills** — Markdown workflow definitions
@@ -69,7 +68,7 @@ Agents can also create skills and extensions at runtime:
 - **Container isolation** — each agent in its own Docker container with filesystem isolation
 - **Credential proxy** — API keys injected at request time, never exposed to agents
 - **File-based IPC** — simple, auditable communication between host and containers
-- **Git worktree isolation** — Claude Code runs in separate worktrees, repo always safe
+- **Layered execution** — L1 plans, L2 executes inside mounted repos
 - **Plugin channels** — DingTalk, Telegram, WeChat; add more by implementing one interface
 
 ## Quick Start
@@ -80,7 +79,7 @@ cd shog-agent
 npm install
 cp .env.example .env  # configure credentials
 ./container/build.sh   # build agent container
-npm run dev
+pm2 start "npm run dev" --name shog-agent
 ```
 
 See `.env.example` for all configuration options.
@@ -98,10 +97,10 @@ Channels are plugin-based. Each self-registers at startup if credentials are pre
 | File | Purpose |
 |------|---------|
 | `src/index.ts` | Orchestrator: state, message loop, agent invocation |
-| `src/claude-code.ts` | Host-side Claude Code execution (Ralph + one-shot) |
+| `src/container-runner.ts` | Spawns agent containers and mounts repos |
 | `src/channels/*.ts` | Channel implementations |
 | `src/container-runner.ts` | Spawns agent containers with mounts |
-| `container/pi-agent-runner/` | Container-side agent runner |
+| `container/system-prompt.md` | Container-side system prompt |
 | `container/extensions/memory/` | LLM Wiki memory system (FTS5 + vectors + KG) |
 | `container/schema/` | Global wiki rules |
 | `scripts/cli.ts` | CLI tool for terminal testing |
@@ -109,10 +108,11 @@ Channels are plugin-based. Each self-registers at startup if credentials are pre
 ## Development
 
 ```bash
-npm run dev          # Run with hot reload
+npm run dev          # Run with hot reload during local development
 npm run build        # Compile TypeScript
 npm test             # Run tests
 ./container/build.sh # Rebuild agent container
+pm2 restart shog-agent  # Restart the managed service after host-side changes
 
 # Debug: send prompt to agent without DingTalk
 echo "your prompt" | npx tsx scripts/cli.ts -g group-name

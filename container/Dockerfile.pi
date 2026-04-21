@@ -31,7 +31,7 @@ ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium
 ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 
 # Install agent-browser globally (no claude-code needed for pi edition)
-RUN npm install -g agent-browser
+RUN npm install -g agent-browser mmx-cli
 
 # Create app directory
 WORKDIR /app
@@ -64,7 +64,7 @@ ENV PATH="/app/node_modules/.bin:${PATH}"
 RUN mkdir -p /workspace/group /workspace/global /workspace/extra /workspace/ipc/messages /workspace/ipc/tasks
 
 # Create entrypoint script — syncs built-in extensions and launches pi in RPC mode.
-RUN printf '#!/bin/bash\nset -e\n# Sync built-in extensions (overwrite stale copies)\nmkdir -p /home/node/.pi/agent/extensions\nfor dir in /tmp/extensions/*/; do\n  name=$(basename "$dir")\n  rm -rf "/home/node/.pi/agent/extensions/$name"\n  cp -r "$dir" "/home/node/.pi/agent/extensions/$name"\ndone\n# Sync global schema and wiki-config (no-clobber: group-specific files take precedence)\nmkdir -p /workspace/group/schema\ncp -n /app/schema/* /workspace/group/schema/ 2>/dev/null || true\ncp -n /app/wiki-config.json /workspace/group/wiki-config.json 2>/dev/null || true\n# Symlink group skills into .pi directory for auto-discovery\nif [ -d /workspace/group/skills ]; then\n  mkdir -p /workspace/group/.pi\n  ln -sfn /workspace/group/skills /workspace/group/.pi/skills\nfi\n# Launch pi in RPC mode\nexec pi --mode rpc \\\n  --append-system-prompt "$(cat /app/system-prompt.md)" \\\n  --model "${MODEL:-openai-codex/gpt-5.4}"\n' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
+RUN printf '#!/bin/bash\nset -e\n# Sync built-in extensions (overwrite stale copies)\nmkdir -p /home/node/.pi/agent/extensions\nfor dir in /tmp/extensions/*/; do\n  name=$(basename "$dir")\n  rm -rf "/home/node/.pi/agent/extensions/$name"\n  cp -r "$dir" "/home/node/.pi/agent/extensions/$name"\ndone\n# Sync built-in skills to pi discoverable path\nmkdir -p /home/node/.pi/agent/skills\nfor dir in /app/skills/*/; do\n  name=$(basename "$dir")\n  rm -rf "/home/node/.pi/agent/skills/$name"\n  cp -r "$dir" "/home/node/.pi/agent/skills/$name"\ndone\n# Sync global schema and wiki-config (no-clobber: group-specific files take precedence)\nmkdir -p /workspace/group/schema\ncp -n /app/schema/* /workspace/group/schema/ 2>/dev/null || true\ncp -n /app/wiki-config.json /workspace/group/wiki-config.json 2>/dev/null || true\n# Symlink group skills into .pi directory for auto-discovery\nif [ -d /workspace/group/skills ]; then\n  mkdir -p /workspace/group/.pi\n  ln -sfn /workspace/group/skills /workspace/group/.pi/skills\nfi\n# Launch pi in RPC mode\nexec pi --mode rpc \\\n  --append-system-prompt "$(cat /app/system-prompt.md)" \\\n  --model "${MODEL:-openai-codex/gpt-5.4}"\n' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 
 # Set ownership to node user (non-root) for writable directories
 RUN chown -R node:node /workspace && chmod 777 /home/node
