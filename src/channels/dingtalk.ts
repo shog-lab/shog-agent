@@ -3,7 +3,7 @@
  * Uses Stream mode (WebSocket long connection, no public URL needed).
  */
 
-import { DWClient, TOPIC_ROBOT } from 'dingtalk-stream-sdk-nodejs';
+import * as DingTalkStreamSdk from 'dingtalk-stream-sdk-nodejs';
 import { Channel, ImageAttachment, NewMessage } from '../types.js';
 import { ChannelOpts, registerChannel } from './registry.js';
 import { readEnvFile } from '../env.js';
@@ -54,10 +54,29 @@ interface ConversationMeta {
   dingtalkId?: string; // senderId (encrypted), needed for group at
 }
 
+const { DWClient, TOPIC_ROBOT } = DingTalkStreamSdk as unknown as {
+  DWClient: new (opts: {
+    clientId: string;
+    clientSecret: string;
+    keepAlive?: boolean;
+  }) => {
+    debug: boolean;
+    getConfig: () => Record<string, unknown>;
+    registerCallbackListener: (
+      topic: string,
+      callback: (res: { data: string; headers: { messageId: string } }) => void,
+    ) => void;
+    connect: () => Promise<void>;
+    send: (messageId: string, payload: unknown) => void;
+    disconnect: () => void;
+  };
+  TOPIC_ROBOT: string;
+};
+
 export class DingTalkChannel implements Channel {
   name = 'dingtalk';
   handlesOwnTrigger = true; // DingTalk only forwards @mentioned messages
-  private client: DWClient;
+  private client: InstanceType<typeof DWClient>;
   private opts: ChannelOpts;
   private appKey: string;
   private appSecret: string;
@@ -69,34 +88,48 @@ export class DingTalkChannel implements Channel {
     this.opts = opts;
     this.appKey = appKey;
     this.appSecret = appSecret;
+    this.client = new DWClient({
+      clientId: appKey,
+      clientSecret: appSecret,
+      keepAlive: true,
+    });
+    this.client.debug = false;
 
-    const originalConsoleLog = console.log;
-    console.log = (...args: unknown[]) => {
-      const first = args[0];
-      if (
-        typeof first === 'object' &&
-        first !== null &&
-        'clientSecret' in first
-      ) {
-        const sanitized = { ...(first as Record<string, unknown>) };
-        sanitized.clientSecret = '[REDACTED]';
-        originalConsoleLog(sanitized, ...args.slice(1));
-        return;
+    const originalGetEndpoint = (
+      this.client as unknown as {
+        getEndpoint?: () => Promise<unknown>;
       }
-      originalConsoleLog(...args);
-    };
-
-    try {
-      this.client = new DWClient({
-        clientId: appKey,
-        clientSecret: appSecret,
-        keepAlive: true,
-      });
-    } finally {
-      console.log = originalConsoleLog;
+    ).getEndpoint;
+    if (originalGetEndpoint) {
+      (
+        this.client as unknown as { getEndpoint: () => Promise<unknown> }
+      ).getEndpoint = async () => {
+        const originalConsoleLog = console.log;
+        console.log = (...args: unknown[]) => {
+          const first = args[0];
+          if (
+            typeof first === 'object' &&
+            first !== null &&
+            'clientSecret' in first
+          ) {
+            const sanitized = { ...(first as Record<string, unknown>) };
+            sanitized.clientSecret = '[REDACTED]';
+            originalConsoleLog(sanitized, ...args.slice(1));
+            return;
+          }
+          if (first === 'res.data') {
+            originalConsoleLog(first, '[REDACTED]');
+            return;
+          }
+          originalConsoleLog(...args);
+        };
+        try {
+          return await originalGetEndpoint.call(this.client);
+        } finally {
+          console.log = originalConsoleLog;
+        }
+      };
     }
-
-    (this.client as unknown as { debug: boolean }).debug = false;
   }
 
   /** Download an image from DingTalk using downloadCode, return base64 + mimeType */

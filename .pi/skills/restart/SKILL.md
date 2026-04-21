@@ -5,21 +5,18 @@ description: Restart ShogAgent. Use when code changes need a restart, or the use
 
 # Restart ShogAgent
 
-ShogAgent is managed by PM2. Use PM2 commands to restart.
+ShogAgent is managed by PM2.
+
+## Rules
+
+- Restart only via PM2.
+- Do not use `nohup npm run dev`, background shell launches, or other manual dev-mode restart paths.
+- After restarting, verify the PM2 process is `online`.
 
 ## Steps
-
-1. Kill running containers and restart via PM2:
 
 ```bash
 docker kill $(docker ps -q --filter "name=shog-agent") 2>/dev/null
 pm2 restart shog-agent
-```
-
-2. Verify:
-
-```bash
 pm2 status shog-agent
 ```
-
-Should show `online`.
