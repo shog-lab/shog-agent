@@ -2,99 +2,58 @@
 
 ## 概述
 
-两层进化机制：子 group 实时自优化，主 group 每日审核 + 每周评估兜底。
+自进化与治理相关的 meta-skill 只属于 meta-agent。普通 group 不再自行运行 self-improve / evolution 类机制。
 
-核心原则：**子 group 自治，主 group 治理；指标驱动，退步即回滚。**
+核心原则：**普通 group 专注任务执行，meta-agent 负责治理、审核、分工与进化。**
 
-## 子 group 自优化（实时）
+## 普通 group
 
-每个 group 在每次对话结束后自动评估是否需要优化，不需要主 group 介入。
+普通 group 不使用 meta-skill，不进行实时自优化。
 
-### 机制：Meta-skill + Hook
+允许的持续改动范围：
+- 执行任务时写业务 wiki
+- 在既有职责内使用已有 skills
 
-两个组件配合：
+不再允许的机制：
+- `self-improve`
+- `evolution`
+- 对自身 skills 的自动改写
+- 对自身 AGENTS.md / extensions 的自行修改
 
-**1. Meta-skill（`container/skills/self-improve/SKILL.md`）**
+如果普通 group 发现：
+- skill 有缺陷
+- 规则需要调整
+- 需要新增能力
 
-所有 group 共享的内建 skill，定义自优化的 SOP：
+应把问题上报给 meta-agent，由 meta-agent 决定是否修改 skills、AGENTS.md、extensions 或系统配置。
 
-- **什么时机该优化**：skill 执行失败、用户纠正了错误行为、发现可复用的经验模式、相同问题反复出现
-- **优化什么**：
-  - 修 `skills/` 下的 SKILL.md（步骤错误、信息过时、缺少边界条件）
-  - 写 wiki（新发现的领域知识、用户偏好、项目约定）
-- **什么不能碰**：
-  - 不改 AGENTS.md（人设变更由主 group 管理）
-  - 不改内建 skills（`/app/skills/`，只读）
-  - 不改 extensions
-- **怎么改**：最小改动，只改有明确证据支持的部分，不做推测性优化
-
-**2. Hook extension（`container/extensions/self-improve/`）**
-
-pi extension，监听 `agent_end` 事件。每次对话结束后：
-
-1. 用 LLM 分析本次对话，判断是否存在优化信号：
-   - 用户纠正了 agent 的错误
-   - 任务失败或重试
-   - 用户明确要求记住某事
-   - skill 执行中遇到意外情况
-2. **无信号**：跳过，不产生额外开销
-3. **有信号**：通过 RPC stdin 发送新的 `prompt`，让 agent 立即按 self-improve skill 执行优化（不等下一轮对话）
-
-信号检测用 LLM 判断而非关键词匹配，确保准确度。成本问题后续可通过模型路由解决（信号检测用轻量模型，实际优化用主力模型）。
-
-### 范围
-
-只改自己的 skills 和 wiki。AGENTS.md 的变更由主 group 统一管理。
-
-## 主 group 复盘
+## meta-agent
 
 ### 每日审核（daily-audit）
 
 **触发**：定时任务，每天 22:00
 
-**执行者**：主 group L1
+**执行者**：meta-agent L1
 
-**目的**：审核子 group 当天的自优化改动，防止改坏。
+**目的**：审核普通 group 的近期改动与运行情况，防止任务侧改坏、偏航或积累脏状态。
 
 **动作**：
-1. 扫描各 group 当天的 skills 和 wiki 变更（对比 checkpoint）
+1. 扫描各 group 当天的 skills / wiki / 关键运行痕迹变更（对比 checkpoint）
 2. 用 LLM 评估每个改动是否合理
 3. 发现明显错误的改动：回滚该文件（文件级粒度，不影响其他改动）
-4. 产出审核记录，写入主 group 的 wiki（type: note，tag: daily-audit）
+4. 产出审核记录，写入 meta-agent 的 wiki（type: note，tag: daily-audit）
 
-**不做**：不跑 benchmark，不做全局指标对比。只审核改动质量。
+**不做**：不跑 benchmark，不做全局指标对比。只审核改动质量与运行稳定性。
 
-### 每周复盘（weekly-review）
+## 分工
 
-**触发**：定时任务，每周日 21:00
-
-**执行者**：主 group L1（需要时启动 L2）
-
-**输入**：
-- 所有 group 本周的对话记录（`/workspace/agents/*/conversations/`）
-- 本周的 daily-audit 记录
-- 上周的 checkpoint 指标
-- 当前各 group 的 AGENTS.md、skills、wiki-config.json
-
-**动作**：
-1. 回顾本周 daily-audit 记录，总结改动趋势
-2. 跑指标（见下方"指标体系"）
-3. 对比上周 checkpoint 的指标
-4. **进步**：归档当前状态为新的 checkpoint（覆盖旧 checkpoint）
-5. **退步**：逐文件对比，只回滚退步相关的文件，保留有效改动
-6. 调用 wiki-lint skill 检查各 group wiki 质量（去重、过期、断链）
-7. 产出周报，写入主 group 的 wiki（type: note，tag: weekly-review）
-8. 如有需要，修改目标 group 的 AGENTS.md
-
-## 三层的分工
-
-| | 子 group（自优化） | 主 group（daily-audit） | 主 group（weekly-review） |
+| | 普通 group | meta-agent（meta-triage） | meta-agent（daily-audit） |
 |---|---|---|---|
-| **做什么** | 改自己的 skills、wiki | 审核子 group 改动质量 | 全局指标评估 + 回滚/归档 |
-| **触发** | agent_end hook | 每天 22:00 | 每周日 21:00 |
-| **依据** | 本次对话反馈 | 对比 checkpoint 的 diff | 跨 group 指标对比 |
-| **回滚** | 不回滚 | 文件级回滚（改坏的单个文件） | 文件级回滚（指标退步相关文件） |
-| **视角** | 单 group 领域知识 | 改动质量把控 | 全局治理 |
+| **做什么** | 执行业务任务，沉淀 wiki | 高频分诊病例与治理请求 | 审核普通 group 改动质量 |
+| **触发** | 用户任务 / 定时任务 | 高频 interval 任务 | 每天 22:00 |
+| **依据** | 当前任务上下文 | raw/meta-requests 与最近上下文 | 对比 checkpoint 的 diff |
+| **回滚** | 不自行回滚治理配置 | 仅在必要时执行治理性修改 | 文件级回滚（改坏的单个文件） |
+| **视角** | 单 group 任务执行 | 高频治理分诊 | 改动质量把控 |
 
 ## Checkpoint 机制
 
@@ -161,37 +120,25 @@ cp checkpoints/latest/{group}/skills/bad-skill/SKILL.md /workspace/agents/{group
 
 ### 指标存储
 
-每次 weekly-review 归档时，写入 checkpoint：
+如后续恢复周度复盘，可再把指标写入 checkpoint：
 
 ```
 groups/dingtalk-shog/checkpoints/latest/metrics.json
-```
-
-```json
-{
-  "date": "2026-04-20",
-  "longmemeval": 0.774,
-  "satisfaction": 0.85,
-  "task_success_rate": 0.92,
-  "details": { ... }
-}
 ```
 
 ## 与现有 skill 的关系
 
 | Skill | 现状 | 调整 |
 |-------|------|------|
-| `daily-review` | 扫描对话和 task-logs，改 harness | 改造为 daily-audit（审核子 group 改动质量） |
-| `autoresearch-loop` | 每周做检索质量实验 | 废弃 |
-| `wiki-lint` | 每周检查 wiki 质量 | 保留，由 weekly-review 内部调用 |
+| `daily-review` | 扫描对话和 task-logs，改 harness | 改造为 daily-audit（仅 meta-agent 使用） |
+| `self-improve` | 普通 group 实时自优化 | 废弃，不再给普通 group 使用 |
+| `weekly-review` | 周度全局复盘 | 暂时移除，后续需要时再恢复 |
+| `wiki-lint` | wiki 质量检查 | 保留 |
 
 ## 实施顺序
 
-1. 创建 `container/skills/self-improve/SKILL.md`（meta-skill，所有 group 共享）
-2. 创建 `container/extensions/self-improve/`（hook extension，监听 agent_end，通过 RPC stdin 触发优化）
-3. 删除 system-prompt.md 中的 `Runtime self-improvement` 段落
-4. 改造 `daily-review` skill 为 `daily-audit`（审核改动质量，文件级回滚）
-5. 创建 `weekly-review` skill（指标对比 + checkpoint 归档/回滚 + 调用 wiki-lint）
-6. 创建 checkpoint 目录结构
-7. 注册定时任务（daily-audit 22:00，weekly-review 周日 21:00）
-8. 废弃 `autoresearch-loop` skill 及定时任务
+1. 将 meta-skill 明确收口到 meta-agent，不再给普通 group 使用
+2. 移除普通 group 的 self-improve / evolution 触发机制
+3. 保留并强化 meta-agent 的 meta-triage / daily-audit / wiki-lint
+4. 创建 checkpoint 目录结构
+5. 注册和维护 meta-agent 定时任务（meta-triage 高频巡检，daily-audit 22:00）

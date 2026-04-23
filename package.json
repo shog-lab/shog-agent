@@ -1,7 +1,7 @@
 {
   "name": "shog-agent",
   "version": "2.0.0",
-  "description": "Memory-driven AI agent platform with LLM Wiki, self-evolution, and Claude Code integration.",
+  "description": "Memory-driven AI agent platform with LLM Wiki, self-evolution, and pi-coding-agent execution.",
   "type": "module",
   "main": "dist/index.js",
   "scripts": {

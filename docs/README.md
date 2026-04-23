@@ -12,7 +12,6 @@
 
 | Document | Description |
 |----------|-------------|
-| [RALPH_INTEGRATION.md](RALPH_INTEGRATION.md) | Ralph 集成方案：spec → 自动写代码 → 测试 |
 
 ## Analysis
 

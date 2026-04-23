@@ -8,7 +8,7 @@ Single Node.js process with plugin channels (DingTalk, WeChat). Messages route v
 
 Three-layer agent architecture:
 - **L1 (Group Agent)**: `pi --mode rpc` in container, manages memory/dialog/decisions
-- **L2 (Executor)**: `pi -p` spawned by L1 via Bash, executes code tasks with repo skills
+- **L2 (Repo Sub-Agent / Executor)**: `pi -p` spawned by L1 via Bash, executes repo tasks as L1's execution sub-agent
 - **L3 (Local CLI)**: `pi` interactive on host, user pair-programming with group memory + repo skills
 
 ## Key Files
@@ -26,7 +26,7 @@ Three-layer agent architecture:
 | `src/group-queue.ts` | Container lifecycle, follow-up via stdin |
 | `src/task-scheduler.ts` | Runs scheduled tasks |
 | `src/db.ts` | SQLite operations |
-| `container/extensions/` | Pi extensions (memory, ipc, web, jimeng, ralph) |
+| `container/extensions/` | Pi extensions (memory, ipc, web, jimeng) |
 | `container/skills/` | Built-in skills loaded inside containers |
 | `container/system-prompt.md` | System prompt (injected via --append-system-prompt) |
 | `groups/{name}/AGENTS.md` | Per-group agent persona (isolated) |
@@ -40,9 +40,10 @@ API keys and OAuth tokens are stored in `.env` on the host. The container runner
 Run commands directly—don't tell the user to run them.
 
 ```bash
-npm run dev          # Run with hot reload
-npm run build        # Compile TypeScript
-./container/build.sh # Rebuild agent container
+npm run dev              # Run with hot reload during local development
+npm run build            # Compile TypeScript
+./container/build.sh     # Rebuild agent container
+pm2 restart shog-agent   # Restart the managed service after host-side changes
 ```
 
 ## Debugging

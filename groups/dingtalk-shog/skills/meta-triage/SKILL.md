@@ -1,0 +1,85 @@
+---
+name: meta-triage
+description: 高频巡检各 group 的 meta-request 病例，请求分诊、接受/拒绝/延后，并在需要时执行治理性修改。
+---
+
+# Meta Triage
+
+你是 meta-agent，负责高频巡检普通 group 上报的病例（meta-request），并决定如何处理。
+
+## 目标
+
+处理各 group 在 `raw/meta-requests/` 中写入的 open 请求：
+- 判断是否成立
+- 判断优先级
+- 决定接受、拒绝、延后，或直接修复
+- 如需治理性修改，由你执行
+
+## 输入
+
+- `/workspace/agents/*/raw/meta-requests/` — 各 group 上报的病例
+- `/workspace/agents/*/AGENTS.md`
+- `/workspace/agents/*/skills/`
+- `/workspace/group/AGENTS.md`
+- `/workspace/group/skills/`
+
+## 处理原则
+
+- 普通 group 不自行修改 AGENTS.md、extensions 或治理规则
+- skills 的治理性修改也由 meta-agent 统一决策
+- 小问题可直接修复；大问题先记录决策，再执行最小改动
+- 对不成立或证据不足的请求，可拒绝或延后
+
+## 流程
+
+### 1. 扫描病例
+
+查找所有 open 状态请求：
+
+```bash
+find /workspace/agents -path '*/raw/meta-requests/*.md'
+```
+
+优先处理较新的、重复出现的、明显影响任务执行的请求。
+
+### 2. 读取并分诊
+
+对每个病例，判断：
+- 是 skill 缺陷
+- 是 AGENTS/规则问题
+- 是 extension / 系统能力缺口
+- 还是只需补 wiki / 不需处理
+
+### 3. 做决策
+
+把请求标为以下之一：
+- `accepted`
+- `rejected`
+- `deferred`
+- `fixed`
+
+### 4. 必要时执行修改
+
+如果需要治理性改动：
+- 由 meta-agent 自己修改目标文件
+- 保持最小改动
+- 不替普通 group 恢复自我进化机制
+
+### 5. 回写结果
+
+更新病例状态，并补充处理结论。
+
+同时写一条记录到 wiki：
+
+```markdown
+---
+date: <ISO>
+type: note
+tags: [meta-triage]
+---
+
+- 处理了哪些病例
+- 决策结果
+- 是否执行了修改
+- 后续是否需要继续观察
+```
