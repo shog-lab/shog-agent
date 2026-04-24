@@ -17,7 +17,7 @@ description: 每日审核各 group 的改动与运行情况，发现明显错误
 - `/workspace/agents/*/AGENTS.md` — 各 group 的人设
 - `/workspace/agents/*/skills/` — 各 group 的技能
 - `/workspace/agents/*/wiki-config.json` — 各 group 的检索参数
-- `/workspace/group/raw/mailbox/inbox/` — meta-agent 收到的治理上报
+- `/workspace/group/raw/mailbox/inbox/` — 可选升级上报留痕（如有）
 - `/workspace/agents/*/raw/logs/` — 关键运行日志
 - `/workspace/agents/*/raw/conversations/` — 对话审计记录（如可用）
 - `git diff --name-only` / `git status --short` — 当前仓库改动线索
@@ -39,13 +39,13 @@ find /workspace/agents/{group}/raw/logs -type f | tail
 - skills 是否出现明显错误改写
 - AGENTS.md 是否偏离当前治理原则
 - wiki-config 是否出现异常参数
-- 是否有重复出现的治理上报、错误日志或失败模式
+- 是否有重复出现的升级上报、错误日志或失败模式
 
 ### 2. 评估问题
 
 判断哪些属于：
-- **合理改动**：符合当前治理策略与任务需要
-- **不合理改动**：引入错误、复杂度失控、偏离角色边界、缺乏依据
+- **合理改动**：符合当前角色职责与任务需要
+- **不合理改动**：引入错误、复杂度失控、越过平台边界、缺乏依据
 - **需要继续观察**：证据不足，先记录不立即处理
 
 ### 3. 处理明显问题

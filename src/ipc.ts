@@ -204,11 +204,6 @@ export async function processTaskIpc(
     // For delegate_task
     requestId?: string;
     agent?: string;
-    // For governance_request
-    from?: string;
-    to?: string;
-    subject?: string;
-    content?: string;
   },
   sourceGroup: string, // Verified identity from IPC directory
   isMain: boolean, // Verified from directory path
@@ -598,67 +593,6 @@ export async function processTaskIpc(
           });
       }
       break;
-
-    case 'agent_message': {
-      if (!data.content) {
-        logger.warn({ sourceGroup, data }, 'agent_message: missing content');
-        break;
-      }
-
-      const groups = deps.registeredGroups();
-      const targetFolder = data.to || 'dingtalk-shog';
-      const targetEntry = Object.entries(groups).find(
-        ([, g]) => g.folder === targetFolder,
-      );
-      if (!targetEntry) {
-        logger.warn(
-          { sourceGroup, targetFolder },
-          'agent_message: target group not found',
-        );
-        break;
-      }
-
-      const targetGroupDir = path.join(process.cwd(), 'groups', targetFolder);
-      const inboxDir = path.join(targetGroupDir, 'raw', 'mailbox', 'inbox');
-      fs.mkdirSync(inboxDir, { recursive: true });
-
-      const createdAt = new Date().toISOString();
-      const id = `msg-${createdAt.replace(/[:.]/g, '-')}-${Math.random().toString(36).slice(2, 8)}`;
-      const message = `---\nid: ${id}\nfrom: ${data.from || sourceGroup}\nto: ${targetFolder}\ntype: request\nstatus: pending\ncreated_at: ${createdAt}\nsubject: ${data.subject || 'governance request'}\n---\n\n${data.content}\n`;
-      fs.writeFileSync(path.join(inboxDir, `${id}.md`), message);
-
-      const targetJid = targetEntry[0];
-      const prompt =
-        '你收到一条新的治理上报。请读取 raw/mailbox/inbox 中的 pending 请求并处理。';
-      const sent = deps.sendPromptToGroup?.(targetJid, prompt);
-      if (!sent) {
-        const taskId = `task-governance-${id}`;
-        createTask({
-          id: taskId,
-          group_folder: targetFolder,
-          chat_jid: targetJid,
-          prompt,
-          script: null,
-          schedule_type: 'once',
-          schedule_value: new Date().toISOString(),
-          context_mode: 'group',
-          next_run: new Date().toISOString(),
-          status: 'active',
-          created_at: new Date().toISOString(),
-        });
-        deps.onTasksChanged();
-        logger.info(
-          { sourceGroup, targetFolder, id, taskId },
-          'Governance request delivered and handling task scheduled',
-        );
-      } else {
-        logger.info(
-          { sourceGroup, targetFolder, id },
-          'Governance request delivered and prompt sent',
-        );
-      }
-      break;
-    }
 
     default:
       logger.warn({ type: data.type }, 'Unknown IPC task type');

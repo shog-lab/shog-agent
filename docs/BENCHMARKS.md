@@ -1,6 +1,6 @@
 # Benchmarks
 
-## 需要跑的指标
+## 当前关注的指标
 
 ### 记忆
 - **LongMemEval**：标准记忆能力
@@ -22,44 +22,10 @@
 - **BrowseComp**：浏览器 agent 评测参考
 - **BU Bench**：高难浏览器任务
 
-## 已有结果
+## 当前结果摘要
 
-### LongMemEval Oracle (2026-04-10)
+- **LongMemEval 当前最好结果：77.4%**（向量搜索 + L1 + KG）
+- **LongMemEval Oracle（2026-04-10）：74.4%**（FTS5 + stopwords + L1 + 类型权重）
+- 当前已知短板：**temporal-reasoning**
 
-评估模型：DeepSeek Chat  
-Token 预算：16000  
-Stopwords 过滤：是
-
-**完整版（FTS5 + stopwords + L1 分层 + 知识图谱 + 类型权重）：74.4%**
-
-| 类型 | 正确率 |
-|------|--------|
-| single-session-assistant | 100.0% (56/56) |
-| single-session-user | 98.6% (69/70) |
-| knowledge-update | 82.1% (64/78) |
-| single-session-preference | 73.3% (22/30) |
-| multi-session | 65.4% (87/133) |
-| temporal-reasoning | 55.6% (74/133) |
-| **Overall** | **74.4% (372/500)** |
-
-横向对比：
-
-| 系统 | LongMemEval Score | 说明 |
-|------|------------------|------|
-| MemPalace (raw verbatim) | 96.6% | ChromaDB 向量搜索，零 API 调用 |
-| Mem0 | ~85% | 云服务，$19-249/mo |
-| **ShogAgent** | **74.4%** | FTS5 全文搜索，纯本地，零成本 |
-| Zep | ~85% | 云服务，$25/mo+ |
-
-消融实验：
-
-| 配置 | LongMemEval Score | 提升 |
-|------|------------------|------|
-| 基线（词项匹配） | 待测 | — |
-| FTS5（无 stopwords） | 71.8% | — |
-| FTS5 + stopwords + L1 + 类型权重 | 74.4% | +2.6 |
-| **向量搜索（Ollama nomic-embed-text）+ L1 + KG** | **77.4%** | **+3.0** |
-
-## 参考
-- Agent Benchmark Compendium: <https://github.com/philschmid/ai-agent-benchmark-compendium>
-- Anthropic Evals Guide: <https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents>
+详细实验结果、横向对比、消融记录已迁移到 shog wiki 管理。
