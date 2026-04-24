@@ -18,6 +18,7 @@ for skill_dir in "$GROUP_DIR/skills/"*/; do
 done
 
 pi --extension "$SHOG_DIR/container/extensions/memory" \
-   --extension "$SHOG_DIR/container/extensions/web" \
+   --extension "$SHOG_DIR/container/extensions/understand_image" \
+   --extension "$SHOG_DIR/container/extensions/web_search" \
    "${SKILL_ARGS[@]}" \
    --append-system-prompt "$(cat "$GROUP_DIR/AGENTS.md")"
