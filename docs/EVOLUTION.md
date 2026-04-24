@@ -25,7 +25,7 @@
 - 规则需要调整
 - 需要新增能力
 
-应把问题上报给 meta-agent，由 meta-agent 决定是否修改 skills、AGENTS.md、extensions 或系统配置。
+应通过治理上报通道把问题上报给 meta-agent，由 meta-agent 决定是否修改 skills、AGENTS.md、extensions 或系统配置。
 
 ## meta-agent
 
@@ -51,7 +51,7 @@
 |---|---|---|---|
 | **做什么** | 执行业务任务，沉淀 wiki | 高频分诊病例与治理请求 | 审核普通 group 改动质量 |
 | **触发** | 用户任务 / 定时任务 | 高频 interval 任务 | 每天 22:00 |
-| **依据** | 当前任务上下文 | raw/meta-requests 与最近上下文 | 对比 checkpoint 的 diff |
+| **依据** | 当前任务上下文 | raw/mailbox/inbox 中的治理上报与最近上下文 | 对比 checkpoint 的 diff |
 | **回滚** | 不自行回滚治理配置 | 仅在必要时执行治理性修改 | 文件级回滚（改坏的单个文件） |
 | **视角** | 单 group 任务执行 | 高频治理分诊 | 改动质量把控 |
 

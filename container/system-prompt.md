@@ -111,4 +111,4 @@ When you need to improve yourself, choose the right mechanism:
 - Change your persona, behavior or style → modify AGENTS.md
 - Record knowledge, facts, decisions → write to wiki/
 - Add a workflow or process → create a skill
-- Need a new tool or lifecycle hook → report a meta-request for the governing meta-agent to evaluate
+- Need a new tool or lifecycle hook → report it to the governing meta-agent for evaluation

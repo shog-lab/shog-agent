@@ -1,14 +1,19 @@
 /**
- * ShogAgent Meta-Request Extension
+ * ShogAgent Governance Request Extension
  *
  * Monitors agent_end events for optimization/governance signals.
- * When signals are detected, writes a meta-request file into the group's
- * raw/meta-requests/ directory instead of triggering self-modification.
+ * When signals are detected, writes an IPC task for the host to deliver
+ * a minimal governance request to the meta-agent.
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { mkdirSync, writeFileSync, renameSync } from "node:fs";
 import { join } from "node:path";
+
+const IPC_DIR = process.env.IPC_DIR || "/workspace/ipc";
+const TASKS_DIR = join(IPC_DIR, "tasks");
+const META_AGENT_FOLDER = process.env.META_AGENT_FOLDER || "dingtalk-shog";
+const GROUP_FOLDER = process.env.GROUP_FOLDER || "unknown-group";
 
 interface AgentMessage {
   role: string;
@@ -68,7 +73,16 @@ function detectSignals(messages: AgentMessage[]): string[] {
 
 function shouldSkip(messages: AgentMessage[]): boolean {
   const allText = messages.map((m) => extractText(m.content)).join("\n");
-  return /self-improve|meta-request|病例|巡检病例/i.test(allText);
+  return /governance request|meta-triage|巡检收件箱|治理上报/i.test(allText);
+}
+
+function writeIpcFile(data: object): void {
+  mkdirSync(TASKS_DIR, { recursive: true });
+  const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.json`;
+  const filepath = join(TASKS_DIR, filename);
+  const tempPath = `${filepath}.tmp`;
+  writeFileSync(tempPath, JSON.stringify(data, null, 2));
+  renameSync(tempPath, filepath);
 }
 
 export default function selfImproveExtension(pi: ExtensionAPI) {
@@ -76,44 +90,22 @@ export default function selfImproveExtension(pi: ExtensionAPI) {
     const messages = (event as { messages?: AgentMessage[] }).messages;
     if (!messages || messages.length === 0) return;
     if (shouldSkip(messages)) return;
+    if (GROUP_FOLDER === META_AGENT_FOLDER) return;
 
     const signals = detectSignals(messages);
     if (signals.length === 0) return;
-
-    const groupDir = "/workspace/group";
-    const requestsDir = join(groupDir, "raw", "meta-requests");
-    mkdirSync(requestsDir, { recursive: true });
 
     const recentMessages = messages.slice(-8);
     const context = recentMessages
       .map((m) => `- [${m.role}] ${extractText(m.content).slice(0, 800)}`)
       .join("\n");
 
-    const date = new Date().toISOString();
-    const filename = `${date.replace(/[:.]/g, "-")}-meta-request.md`;
-    const filepath = join(requestsDir, filename);
-    if (existsSync(filepath)) return;
-
-    const content = `---
-type: meta-request
-status: open
-date: ${date}
-signals:
-${signals.map((s) => `  - ${s}`).join("\n")}
----
-
-## 问题概述
-检测到本次对话/执行中存在需要 meta-agent 评估的信号，普通 group 不自行修改 skills、AGENTS.md、extensions 或治理规则。
-
-## 最近上下文
-${context || "- 无可提取上下文"}
-
-## 建议处理方向
-- 判断是否需要修改 skills
-- 判断是否需要修改 AGENTS.md / system prompt / extensions
-- 判断是否只需补充 wiki 或维持现状
-`;
-
-    writeFileSync(filepath, content);
+    writeIpcFile({
+      type: "agent_message",
+      from: GROUP_FOLDER,
+      to: META_AGENT_FOLDER,
+      subject: "governance signal report",
+      content: `检测到本次对话/执行中存在需要治理侧评估的信号。\n\nSignals:\n- ${signals.join("\n- ")}\n\n## 最近上下文\n${context || "- 无可提取上下文"}`,
+    });
   });
 }
