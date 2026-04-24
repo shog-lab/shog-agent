@@ -207,6 +207,16 @@ export async function processTaskIpc(
     // For self_improve
     signals?: string;
     context?: string;
+    // For agent_message
+    from?: string;
+    to?: string;
+    messageType?: string;
+    subject?: string;
+    content?: string;
+    reply_to?: string;
+    // For mailbox_status_update
+    messageId?: string;
+    status?: string;
   },
   sourceGroup: string, // Verified identity from IPC directory
   isMain: boolean, // Verified from directory path
@@ -597,31 +607,144 @@ export async function processTaskIpc(
       }
       break;
 
-    case 'self_improve': {
-      if (!data.signals || !data.context) break;
-
-      // Find the chat JID for this group
-      const groups = deps.registeredGroups();
-      const groupEntry = Object.entries(groups).find(
-        ([, g]) => g.folder === sourceGroup,
-      );
-      if (!groupEntry) {
-        logger.warn({ sourceGroup }, 'self_improve: group not found');
+    case 'mailbox_status_update': {
+      if (!data.messageId || !data.status) {
+        logger.warn(
+          { sourceGroup, data },
+          'mailbox_status_update: missing required fields',
+        );
         break;
       }
 
-      const prompt = `[SELF-IMPROVE] 系统检测到优化信号：${data.signals}\n\n相关对话上下文：\n${data.context}\n\n请按 self-improve skill 的 SOP 执行优化。`;
+      const inboxDir = path.join(
+        process.cwd(),
+        'groups',
+        sourceGroup,
+        'raw',
+        'mailbox',
+        'inbox',
+      );
+      const outboxDir = path.join(
+        process.cwd(),
+        'groups',
+        sourceGroup,
+        'raw',
+        'mailbox',
+        'outbox',
+      );
+      const candidates = [
+        path.join(inboxDir, `${data.messageId}.md`),
+        path.join(outboxDir, `${data.messageId}.md`),
+      ];
+      const targetFile = candidates.find((file) => fs.existsSync(file));
+      if (!targetFile) {
+        logger.warn(
+          { sourceGroup, messageId: data.messageId },
+          'mailbox_status_update: message file not found',
+        );
+        break;
+      }
 
-      const sent = deps.sendPromptToGroup?.(groupEntry[0], prompt);
-      if (sent) {
+      const allowedStatuses = new Set(['pending', 'read', 'replied', 'closed']);
+      if (!allowedStatuses.has(data.status)) {
+        logger.warn(
+          { sourceGroup, status: data.status },
+          'mailbox_status_update: invalid status',
+        );
+        break;
+      }
+
+      const original = fs.readFileSync(targetFile, 'utf8');
+      const updated = original.replace(
+        /\nstatus: .*\n/,
+        `\nstatus: ${data.status}\n`,
+      );
+      if (updated === original) {
+        logger.warn(
+          { sourceGroup, messageId: data.messageId },
+          'mailbox_status_update: status field not found',
+        );
+        break;
+      }
+      fs.writeFileSync(targetFile, updated);
+      logger.info(
+        { sourceGroup, messageId: data.messageId, status: data.status },
+        'Mailbox status updated',
+      );
+      break;
+    }
+
+    case 'agent_message': {
+      if (!data.to || !data.content) {
+        logger.warn(
+          { sourceGroup, data },
+          'agent_message: missing required fields',
+        );
+        break;
+      }
+
+      const groups = deps.registeredGroups();
+      const targetEntry = Object.entries(groups).find(
+        ([, g]) => g.folder === data.to,
+      );
+      if (!targetEntry) {
+        logger.warn(
+          { sourceGroup, target: data.to },
+          'agent_message: target group not found',
+        );
+        break;
+      }
+
+      const senderGroupDir = path.join(process.cwd(), 'groups', sourceGroup);
+      const targetGroupDir = path.join(process.cwd(), 'groups', data.to);
+      const senderOutbox = path.join(
+        senderGroupDir,
+        'raw',
+        'mailbox',
+        'outbox',
+      );
+      const targetInbox = path.join(targetGroupDir, 'raw', 'mailbox', 'inbox');
+      fs.mkdirSync(senderOutbox, { recursive: true });
+      fs.mkdirSync(targetInbox, { recursive: true });
+
+      const createdAt = new Date().toISOString();
+      const id = `msg-${createdAt.replace(/[:.]/g, '-')}-${Math.random().toString(36).slice(2, 8)}`;
+      const messageType = data.messageType || 'message';
+      const from = data.from || sourceGroup;
+      const status = messageType === 'response' ? 'replied' : 'pending';
+      const content = `---\nid: ${id}\nfrom: ${from}\nto: ${data.to}\ntype: ${messageType}\nstatus: ${status}\ncreated_at: ${createdAt}\nreply_to: ${data.reply_to || ''}\nsubject: ${data.subject || ''}\n---\n\n${data.content}\n`;
+      const filename = `${id}.md`;
+      fs.writeFileSync(path.join(senderOutbox, filename), content);
+      fs.writeFileSync(path.join(targetInbox, filename), content);
+
+      const targetJid = targetEntry[0];
+      const prompt =
+        '你收到一封新邮件。请读取 raw/mailbox/inbox 中 pending 的消息并处理。';
+      const sent = deps.sendPromptToGroup?.(targetJid, prompt);
+      if (!sent) {
+        const taskId = `task-mailbox-${id}`;
+        createTask({
+          id: taskId,
+          group_folder: data.to,
+          chat_jid: targetJid,
+          prompt,
+          script: null,
+          schedule_type: 'once',
+          schedule_value: new Date().toISOString(),
+          context_mode: 'group',
+          next_run: new Date().toISOString(),
+          status: 'active',
+          created_at: new Date().toISOString(),
+        });
+        deps.onTasksChanged();
         logger.info(
-          { sourceGroup, signals: data.signals },
-          'Self-improve prompt sent',
+          { sourceGroup, target: data.to, id, taskId },
+          'agent_message delivered and mailbox handling task scheduled',
         );
       } else {
-        logger.warn(
-          { sourceGroup },
-          'self_improve: failed to send prompt (no active container)',
+        logger.info(
+          { sourceGroup, target: data.to, id },
+          'agent_message delivered and prompt sent',
         );
       }
       break;

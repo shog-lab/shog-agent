@@ -25,7 +25,7 @@
 - 规则需要调整
 - 需要新增能力
 
-应把问题上报给 meta-agent，由 meta-agent 决定是否修改 skills、AGENTS.md、extensions 或系统配置。
+应通过邮箱模型把问题上报给 meta-agent，由 meta-agent 决定是否修改 skills、AGENTS.md、extensions 或系统配置。
 
 ## meta-agent
 
@@ -38,9 +38,9 @@
 **目的**：审核普通 group 的近期改动与运行情况，防止任务侧改坏、偏航或积累脏状态。
 
 **动作**：
-1. 扫描各 group 当天的 skills / wiki / 关键运行痕迹变更（对比 checkpoint）
+1. 扫描各 group 当天的 skills / wiki / 关键运行痕迹变更
 2. 用 LLM 评估每个改动是否合理
-3. 发现明显错误的改动：回滚该文件（文件级粒度，不影响其他改动）
+3. 发现明显错误的改动：做最小修正或基于 git 回滚
 4. 产出审核记录，写入 meta-agent 的 wiki（type: note，tag: daily-audit）
 
 **不做**：不跑 benchmark，不做全局指标对比。只审核改动质量与运行稳定性。
@@ -51,58 +51,9 @@
 |---|---|---|---|
 | **做什么** | 执行业务任务，沉淀 wiki | 高频分诊病例与治理请求 | 审核普通 group 改动质量 |
 | **触发** | 用户任务 / 定时任务 | 高频 interval 任务 | 每天 22:00 |
-| **依据** | 当前任务上下文 | raw/meta-requests 与最近上下文 | 对比 checkpoint 的 diff |
-| **回滚** | 不自行回滚治理配置 | 仅在必要时执行治理性修改 | 文件级回滚（改坏的单个文件） |
+| **依据** | 当前任务上下文 | raw/mailbox/inbox 与最近上下文 | 近期改动、运行痕迹、git diff |
+| **回滚** | 不自行回滚治理配置 | 仅在必要时执行治理性修改 | 基于 git 或已知正确内容做最小回滚/修正 |
 | **视角** | 单 group 任务执行 | 高频治理分诊 | 改动质量把控 |
-
-## Checkpoint 机制
-
-### 归档范围
-
-每个 group 的以下文件：
-
-| 文件 | 说明 |
-|------|------|
-| `AGENTS.md` | agent 人设和行为规范 |
-| `skills/` | 技能定义 |
-| `wiki-config.json` | 检索参数（阈值、权重、embedding 模型等） |
-
-**不归档**：wiki 内容（知识是增量的，不回退）、conversations、session 数据。
-
-### 存储位置
-
-```
-groups/dingtalk-shog/checkpoints/
-├── latest/                          ← 当前最优实现（文件级独立管理）
-│   ├── dingtalk-shog/
-│   │   ├── AGENTS.md
-│   │   ├── skills/
-│   │   │   ├── skill-a/SKILL.md
-│   │   │   └── skill-b/SKILL.md
-│   │   └── wiki-config.json
-│   ├── dingtalk-harness/
-│   │   └── ...
-│   └── metrics.json                 ← 上次归档时的指标快照
-└── history/                         ← 历史快照（可选，按日期）
-    └── 2026-04-20/
-        └── ...
-```
-
-### 归档操作（weekly-review，指标进步时）
-
-```bash
-cp -r /workspace/agents/{group}/AGENTS.md checkpoints/latest/{group}/
-cp -r /workspace/agents/{group}/skills/ checkpoints/latest/{group}/
-cp -r /workspace/agents/{group}/wiki-config.json checkpoints/latest/{group}/
-```
-
-### 回滚操作（文件级粒度）
-
-```bash
-# daily-audit 或 weekly-review 发现某个文件有问题，只回滚该文件
-cp checkpoints/latest/{group}/skills/bad-skill/SKILL.md /workspace/agents/{group}/skills/bad-skill/
-# 其他文件不动
-```
 
 ## 指标体系
 
@@ -118,14 +69,6 @@ cp checkpoints/latest/{group}/skills/bad-skill/SKILL.md /workspace/agents/{group
 | **技能使用率** | skill 被调用次数 | 从对话记录提取 |
 | **响应质量** | 用户追问/纠正次数 | 追问多说明首次回答不够好 |
 
-### 指标存储
-
-如后续恢复周度复盘，可再把指标写入 checkpoint：
-
-```
-groups/dingtalk-shog/checkpoints/latest/metrics.json
-```
-
 ## 与现有 skill 的关系
 
 | Skill | 现状 | 调整 |
@@ -140,5 +83,4 @@ groups/dingtalk-shog/checkpoints/latest/metrics.json
 1. 将 meta-skill 明确收口到 meta-agent，不再给普通 group 使用
 2. 移除普通 group 的 self-improve / evolution 触发机制
 3. 保留并强化 meta-agent 的 meta-triage / daily-audit / wiki-lint
-4. 创建 checkpoint 目录结构
-5. 注册和维护 meta-agent 定时任务（meta-triage 高频巡检，daily-audit 22:00）
+4. 注册和维护 meta-agent 定时任务（meta-triage 高频巡检，daily-audit 22:00）

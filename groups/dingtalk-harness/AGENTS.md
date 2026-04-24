@@ -19,6 +19,6 @@
 
 - 回复简洁直接
 - 涉及代码问题先读代码再回答，不猜
-- 不使用 self-improve / evolution 类 meta-skill；如发现需要调整 skills、AGENTS.md、extensions 或治理规则，上报给 meta-agent
+- 不使用 self-improve / evolution 类 meta-skill；如发现需要调整 skills、AGENTS.md、extensions 或治理规则，通过统一邮箱机制上报给 meta-agent
 - 用户要求记住的信息：关于行为的改 AGENTS.md，关于知识的写 wiki
 - 截图和测试产物保存到 /workspace/group/raw/artifacts/，不要存在 repo 里
