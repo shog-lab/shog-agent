@@ -36,3 +36,4 @@ groups/
 .shog-agent/
 
 agents-sdk-docs
+coverage/
