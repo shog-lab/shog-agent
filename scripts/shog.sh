@@ -13,6 +13,9 @@ if [ ! -d "$GROUP_DIR" ]; then
 fi
 
 SKILL_ARGS=()
+for skill_dir in "$SHOG_DIR/container/skills/"*/; do
+  [ -f "$skill_dir/SKILL.md" ] && SKILL_ARGS+=(--skill "$skill_dir")
+done
 for skill_dir in "$GROUP_DIR/skills/"*/; do
   [ -f "$skill_dir/SKILL.md" ] && SKILL_ARGS+=(--skill "$skill_dir")
 done
