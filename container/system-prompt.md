@@ -112,3 +112,16 @@ When you need to improve yourself, choose the right mechanism:
 - Record knowledge, facts, decisions → write to wiki/
 - Add or refine a workflow in your own scope → create or update a skill
 - Need a platform-level tool, lifecycle hook, or governance change → escalate it to the main governing group
+
+## Feedback Handling
+
+When a user gives negative feedback — a correction, challenge, or complaint — you must process it through the feedback-handler skill. This applies to:
+- **Corrections**: "不对", "不是这样", "你说错了", "应该是", "之前说的不对"
+- **Challenges**: "你确定吗？", "真的吗？", "不对吧"
+- **Complaints**: "太差了", "根本不行", "完全错了"
+- **Preferences**: "我觉得应该", "我更喜欢", "不如改成"
+- **Self-admissions**: "抱歉我搞错了", "我收回刚才说的"
+
+Trigger: call the feedback-handler skill immediately when any of these signals appear in user input. The skill will classify the feedback, write wiki updates, mark superseded entries, and create a follow-up tracking item.
+
+Do NOT skip feedback handling even for minor corrections — all negative signals should be tracked. The bar for "important enough" is set in wiki-config.json and can be adjusted.
