@@ -339,12 +339,12 @@ describe('TelegramChannel', () => {
       expect(opts.onMessage).not.toHaveBeenCalled();
 
       // Non-bot /commands should flow through
-      const ctx3 = createTextCtx({ text: '/remote-control' });
+      const ctx3 = createTextCtx({ text: '/status' });
       await triggerTextMessage(ctx3);
       expect(opts.onMessage).toHaveBeenCalledTimes(1);
       expect(opts.onMessage).toHaveBeenCalledWith(
         'tg:100200300',
-        expect.objectContaining({ content: '/remote-control' }),
+        expect.objectContaining({ content: '/status' }),
       );
     });
 
