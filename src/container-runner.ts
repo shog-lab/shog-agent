@@ -62,6 +62,7 @@ const CROSS_GROUP_WRITABLE_PATHS = ['AGENTS.md', 'skills', 'memory'];
 function buildVolumeMounts(
   group: RegisteredGroup,
   isMain: boolean,
+  repoReadOnlyOverride?: boolean,
 ): VolumeMount[] {
   const mounts: VolumeMount[] = [];
   const projectRoot = process.cwd();
@@ -214,7 +215,7 @@ function buildVolumeMounts(
       group.containerConfig.codeRepos,
       group.name,
       isMain,
-      group.containerConfig.codeReposReadOnly ?? false,
+      group.containerConfig.codeReposReadOnly ?? repoReadOnlyOverride ?? false,
     );
     mounts.push(...repoMounts);
   }
@@ -301,13 +302,16 @@ export async function runContainerAgent(
   input: ContainerInput,
   onProcess: (proc: ChildProcess, containerName: string) => void,
   onOutput?: (output: ContainerOutput) => Promise<void>,
+  options?: {
+    repoReadOnly?: boolean;
+  },
 ): Promise<ContainerOutput> {
   const startTime = Date.now();
 
   const groupDir = resolveGroupFolderPath(group.folder);
   fs.mkdirSync(groupDir, { recursive: true });
 
-  const mounts = buildVolumeMounts(group, input.isMain);
+  const mounts = buildVolumeMounts(group, input.isMain, options?.repoReadOnly);
   const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
   const containerName = `shog-agent-${safeName}-${Date.now()}`;
   const containerArgs = await buildContainerArgs(mounts, containerName, input);
