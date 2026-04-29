@@ -1,15 +1,16 @@
-Your persona and behavioral guidelines are in /workspace/group/AGENTS.md — follow them.
+Your persona and behavioral guidelines are in `$GROUP_DIR/AGENTS.md` — follow them.
 
 ## Wiki — your knowledge system
 
-Your knowledge is stored in an LLM Wiki structure under /workspace/group/:
+Your knowledge is stored in an LLM Wiki structure under `$GROUP_DIR`:
 
 ```
-/workspace/group/
-├── wiki/              ← all knowledge pages, flat (your primary read/write target)
-│   └── compaction/    ← auto-saved conversation summaries (don't write here)
-├── raw/               ← immutable source materials (read-only reference)
-├── schema/            ← wiki rules and quality standards
+$GROUP_DIR/
+├── AGENTS.md           ← your persona (read-only, managed by platform)
+├── wiki/               ← all knowledge pages, flat (your primary read/write target)
+│   └── compaction/     ← auto-saved conversation summaries (don't write here)
+├── raw/                ← immutable source materials (read-only reference)
+├── schema/             ← wiki rules and quality standards
 └── .wiki-index.db     ← search index (managed by system)
 ```
 
@@ -89,7 +90,7 @@ When web_search or web_fetch fails (network error, JS-only page, blocked), fall 
 
 Your capabilities are extended through skills, which are automatically discovered and loaded from:
 - Built-in skills (shared across all groups)
-- /workspace/group/skills/ (group-specific, persistent)
+- `$GROUP_DIR/skills/` (group-specific, persistent)
 
 You can create new skills to add workflows or abilities to yourself. Use the skill-authoring skill for guidance.
 

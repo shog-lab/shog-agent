@@ -626,46 +626,11 @@ function ensureContainerSystemRunning(): void {
 const CLEANUP_MAX_AGE_DAYS = 30;
 
 /**
- * Clean up old conversation files and database messages.
+ * Clean up old log files and database messages.
  * Runs on startup and can be called periodically.
  */
 function runDataCleanup(): void {
-  // 1. Clean old conversation files from all groups
-  try {
-    const cutoff = Date.now() - CLEANUP_MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
-    let deletedFiles = 0;
-
-    if (fs.existsSync(GROUPS_DIR)) {
-      for (const group of fs.readdirSync(GROUPS_DIR)) {
-        const convDir = path.join(GROUPS_DIR, group, 'conversations');
-        if (!fs.existsSync(convDir)) continue;
-        for (const file of fs.readdirSync(convDir)) {
-          if (!file.endsWith('.md')) continue;
-          const filePath = path.join(convDir, file);
-          try {
-            const stat = fs.statSync(filePath);
-            if (stat.mtimeMs < cutoff) {
-              fs.unlinkSync(filePath);
-              deletedFiles++;
-            }
-          } catch {
-            /* ignore individual file errors */
-          }
-        }
-      }
-    }
-
-    if (deletedFiles > 0) {
-      logger.info(
-        { deletedFiles, maxAgeDays: CLEANUP_MAX_AGE_DAYS },
-        'Cleaned up old conversation files',
-      );
-    }
-  } catch (err) {
-    logger.warn({ err }, 'Conversation cleanup failed');
-  }
-
-  // 2. Clean old log files from all groups
+  // 1. Clean old log files from all groups
   try {
     const cutoff = Date.now() - CLEANUP_MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
     let deletedLogs = 0;
