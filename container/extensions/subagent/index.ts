@@ -68,8 +68,8 @@ export default function subagentExtension(_pi: ExtensionAPI) {
         "--model", process.env.MODEL ?? "minimax-cn/MiniMax-M2.7",
       ];
 
-      // Load basic extensions if available (web_search, agent_browser, memory)
-      const basicExts = ["web_search", "agent_browser", "memory"];
+      // Load basic work tools only — NO memory (memory = wiki access = must be L1 only)
+      const basicExts = ["web_search", "agent_browser"];
       for (const ext of basicExts) {
         const extPath = resolveExtensionPath(ext);
         if (extPath) args.push("-e", extPath);
