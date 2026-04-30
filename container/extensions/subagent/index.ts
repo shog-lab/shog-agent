@@ -59,20 +59,23 @@ export default function subagentExtension(_pi: ExtensionAPI) {
       const timeoutSec = Math.min(params.timeout ?? 300, 600);
       const timeoutMs = timeoutSec * 1000;
 
-      // Build pi arguments
+      // Build pi arguments — use -p (non-interactive) with prompt as CLI arg.
+      // This avoids needing to pipe stdin which is already consumed by L1's RPC stdin.
+      const piBin = "/app/node_modules/.bin/pi";
       const args = [
-        "--no-extensions",
-        "--model", process.env.MODEL ?? "openai-codex/gpt-5.4",
+        "-p",                        // non-interactive: read prompt from args, exit when done
+        "--no-extensions",           // no group extensions — subagent gets minimal context
+        "--model", process.env.MODEL ?? "minimax-cn/MiniMax-M2.7",
       ];
 
-      // Auto-load basic extensions (web_search, agent_browser) if available
+      // Load basic extensions if available (web_search, agent_browser, memory)
       const basicExts = ["web_search", "agent_browser", "memory"];
       for (const ext of basicExts) {
         const extPath = resolveExtensionPath(ext);
         if (extPath) args.push("-e", extPath);
       }
 
-      // System prompt for sub-agent isolation
+      // System prompt for sub-agent isolation rules
       const systemPrompt = [
         "You are a sub-agent (L2) executing a task in a repository.",
         "Rules:",
@@ -84,21 +87,23 @@ export default function subagentExtension(_pi: ExtensionAPI) {
         "",
         `Task: ${params.prompt}`,
       ].join("\n");
-
       args.push("--append-system-prompt", systemPrompt);
-      args.push(params.prompt); // pass task as message argument
+
+      // Pass the actual task as a positional argument (not via stdin — stdin is already consumed)
+      args.push(params.prompt);
 
       return new Promise((resolve) => {
         let killed = false;
-        const proc = spawn("pi", args, {
+        const proc = spawn(piBin, args, {
           cwd: normalized,
           env: { ...process.env },
-          stdio: ["pipe", "pipe", "pipe"],
+          stdio: ["ignore", "pipe", "pipe"],  // stdin=ignore (prompt is in args)
         });
 
         const timer = setTimeout(() => {
           killed = true;
           proc.kill("SIGTERM");
+          setTimeout(() => proc.kill("SIGKILL"), 5000);
         }, timeoutMs);
 
         let stdout = "";
@@ -112,8 +117,12 @@ export default function subagentExtension(_pi: ExtensionAPI) {
           if (killed) {
             resolve(err(`Sub-agent timed out after ${timeoutSec}s`));
           } else if (code === 0) {
-            // Strip pi's decorative output, keep meaningful text
-            const text = stdout.replace(/^.*?\n---\n/s, "").trim() || "Done.";
+            // Strip pi's decorative wrapper, keep the meaningful output
+            const text = stdout
+              .replace(/^\*\*Output:\*\*\n?/s, "")
+              .replace(/^.*?---\n/s, "")
+              .replace(/^\*\*\(.+\)\*\*\n?/s, "")
+              .trim() || "Done.";
             resolve(ok(text));
           } else {
             resolve(err(stderr || stdout || `Sub-agent exited with code ${code}`));

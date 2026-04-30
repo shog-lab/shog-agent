@@ -5,12 +5,13 @@ description: Restart ShogAgent. Use when code changes need a restart, or the use
 
 # Restart ShogAgent
 
-ShogAgent is managed by PM2.
+ShogAgent is managed by PM2. ecosystem 文件位于 `/Users/maoxiongyu/Code/shog-agent/ecosystem.config.cjs`。
 
 ## Rules
 
 - Restart only via PM2.
-- Do not use `nohup npm run dev`, background shell launches, or other manual dev-mode restart paths.
+- Do not use `nohup npm run dev`, background shell launches, or other manual dev-mode restart paths。
+- PM2 save 后重启才会自启。
 - After restarting, verify the PM2 process is `online`.
 
 ## Steps
