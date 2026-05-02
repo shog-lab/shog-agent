@@ -2,14 +2,15 @@
  * ShogAgent Memory Extension for pi-coding-agent
  *
  * Thin wrapper around MemoryCore. Hooks into agent lifecycle:
- * - session_compact → auto-save compaction summaries to wiki/compaction/
+ * - session_before_compact → can customize / cancel compaction (optional)
+ * - session_compact → auto-save compaction summaries + notify maintenance daemon
  * - before_agent_start → inject L1 + L2/L3 memories + KG into system prompt
  *
  * All logic lives in core.ts. This file only does wiring.
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { MemoryCore } from "./core.js";
 
@@ -43,9 +44,32 @@ function getCore(): MemoryCore {
 // --- Extension ---
 
 export default function memExtension(pi: ExtensionAPI) {
-  // Auto-save compaction summaries
+  // Auto-save compaction summaries + notify maintenance daemon via IPC
   pi.on("session_compact", (event) => {
-    getCore().saveMemory("compaction", event.compactionEntry.summary);
+    const summaryFile = getCore().saveMemory("compaction", event.compactionEntry.summary);
+
+    // Write IPC notification for memory-maintenance daemon (runs on host)
+    const groupFolder = process.env.GROUP_FOLDER || "unknown";
+    const ipcPendingDir = `/workspace/ipc/${groupFolder}/maintenance/pending`;
+    try {
+      mkdirSync(ipcPendingDir, { recursive: true });
+      const id = `compact-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const payload = {
+        id,
+        group: groupFolder,
+        type: "compaction" as const,
+        sessionId: event.compactionEntry.id,
+        timestamp: new Date().toISOString(),
+        payload: {
+          summaryFile,
+          tokensBefore: event.compactionEntry.tokensBefore,
+        },
+      };
+      writeFileSync(`${ipcPendingDir}/${id}.json`, JSON.stringify(payload, null, 2));
+    } catch (e) {
+      // Non-fatal: IPC write failure shouldn't break compaction
+      console.error("[memory] Failed to write IPC notification:", e);
+    }
   });
 
   // Inject memories before agent starts processing
