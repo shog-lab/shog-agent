@@ -2,15 +2,10 @@
  * memory-maintenance — ShogAgent Maintenance Daemon
  *
  * Runs as a PM2-managed long-lived process.
- * Responsibilities:
- * - Per-conversation (compaction trigger): B + D + F
+ * Responsibilities (per-conversation only, compaction trigger):
  *   B: Analyze compaction summary → formal wiki entry
- *   D: Sync FTS5 index for new compaction files
- *   F: Analyze summary → decide if skill needs creation/modification
- * - Daily (timer): A + C + E
- *   A: Archive old compaction files
- *   C: Wiki lint (frontmatter, broken links, dedup)
- *   E: Memory GC (tag stale, delete expired)
+ *   D: Mark new wiki files for FTS5 index update
+ *   F: L2 directly writes skill if repeated pattern found
  *
  * Trigger mechanism:
  * - Pi emits session_compact → memory extension writes to IPC:
@@ -30,9 +25,6 @@ import { logger } from './logger.js';
 // ── Config ──────────────────────────────────────────────────────────────────
 
 const POLL_INTERVAL_MS = 30_000; // Poll IPC dir every 30s
-const DAILY_MAINTENANCE_HOUR = 3; // Run at 3 AM
-const ARCHIVE_AGE_DAYS = 14; // Compact files older than 14 days → archive
-const STALE_THRESHOLD_DAYS = 180; // Entries older than 180 days → tag stale
 const CONCURRENCY = 2; // Max concurrent L2 spawns per group
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -149,40 +141,49 @@ async function handleCompaction(
     };
   }
 
-  // B: Summarize → formal wiki entry
+  // B+D: L2 analyzes summary → wiki entry + FTS5 marker
   try {
-    const summary = fs.readFileSync(payload.summaryFile, 'utf-8');
-    const wikiFile = payload.summaryFile.replace(
-      '/compaction/',
-      '/compaction/processed/',
-    );
-    const processedDir = path.dirname(wikiFile);
-    fs.mkdirSync(processedDir, { recursive: true });
-    fs.writeFileSync(wikiFile, summary);
-    actions.push(`B: Saved compaction summary to ${path.basename(wikiFile)}`);
-  } catch (e: unknown) {
-    errors.push(`B failed: ${e instanceof Error ? e.message : String(e)}`);
-  }
-
-  // D: Sync FTS5 index
-  try {
-    // Index the new compaction file via the memory core
-    // For now, write a marker - actual FTS5 sync happens in memory extension
-    actions.push('D: Compaction index sync queued');
-  } catch (e: unknown) {
-    errors.push(`D failed: ${e instanceof Error ? e.message : String(e)}`);
-  }
-
-  // F: Skill evolution check
-  try {
-    // L2 analyzes if a skill needs to be created/modified based on the summary
-    const result = await spawnL2(
+    // L2 analyzes the summary and writes a formal wiki entry
+    const l2Result = await spawnL2(
       group,
-      `Analyze this compaction summary and decide if a skill needs to be created or modified. Summary:\n${payload.summaryFile}\nRespond with: YES/<skill-name>/NO and brief reason.`,
+      `Read the compaction summary at ${payload.summaryFile}.
+Analyze its content and write a formal wiki entry to /workspace/group/wiki/.
+File name format: YYYY-MM-DD-{topic-slug}.md
+Frontmatter required: date, type (note|decision|fact), tags, summary.
+If the summary contains不值得写 wiki 的 trivial 内容，just write "SKIP" as first line.
+Also after writing the wiki file，write the path to /workspace/group/wiki/.index-queue so memory extension can update FTS5 index.
+Write result as: WIKIPATH:<path> or SKIP`,
+      120,
     );
-    if (result.startsWith('YES/')) {
-      const skillName = result.split('/')[1]?.trim();
-      actions.push(`F: Skill evolution triggered for "${skillName}"`);
+
+    if (l2Result.startsWith('WIKIPATH:')) {
+      const wikiPath = l2Result.replace('WIKIPATH:', '').trim();
+      actions.push(`B+D: Wiki at ${path.basename(wikiPath)}, FTS5 queued`);
+    } else {
+      actions.push(`B+D: No wiki entry needed`);
+    }
+  } catch (e: unknown) {
+    errors.push(`B+D failed: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
+  // F: L2 directly writes skill if repeated pattern found
+  try {
+    const l2Result = await spawnL2(
+      group,
+      `Read the compaction summary at ${payload.summaryFile}.
+Analyze if the same problem or pattern has appeared multiple times (check /workspace/group/wiki/ for related entries).
+If a clear repeated pattern is found，write a new skill file to /workspace/group/skills/{name}/SKILL.md.
+If no pattern，write "SKIP".
+If skill is written，also append to /workspace/group/wiki/.skill-evolution-log.md:
+- skill path
+- trigger reason
+- timestamp
+Write result as: SKILLWRITTEN:<path> or SKIP`,
+      180,
+    );
+    if (l2Result.startsWith('SKILLWRITTEN:')) {
+      const skillPath = l2Result.replace('SKILLWRITTEN:', '').trim();
+      actions.push(`F: Skill written at ${skillPath}`);
     } else {
       actions.push('F: No skill evolution needed');
     }
@@ -192,102 +193,6 @@ async function handleCompaction(
 
   return {
     id: pending.id,
-    group,
-    status:
-      errors.length === 0
-        ? 'success'
-        : errors.length < 3
-          ? 'partial'
-          : 'failed',
-    actions,
-    errors,
-  };
-}
-
-async function runDailyMaintenance(group: string): Promise<MaintenanceResult> {
-  const actions: string[] = [];
-  const errors: string[] = [];
-
-  const groupDir = path.join(process.cwd(), 'groups', group);
-  const wikiDir = path.join(groupDir, 'wiki');
-  const compactionDir = path.join(wikiDir, 'compaction');
-
-  // A: Archive old compaction files
-  try {
-    if (fs.existsSync(compactionDir)) {
-      const now = Date.now();
-      const ageMs = ARCHIVE_AGE_DAYS * 24 * 60 * 60 * 1000;
-      const archiveDir = path.join(compactionDir, 'archived');
-      fs.mkdirSync(archiveDir, { recursive: true });
-
-      let archivedCount = 0;
-      for (const file of fs.readdirSync(compactionDir)) {
-        if (file === 'archived') continue;
-        const filePath = path.join(compactionDir, file);
-        const stat = fs.statSync(filePath);
-        if (now - stat.mtimeMs > ageMs) {
-          fs.renameSync(filePath, path.join(archiveDir, file));
-          archivedCount++;
-        }
-      }
-      if (archivedCount > 0)
-        actions.push(`A: Archived ${archivedCount} old compaction files`);
-    }
-  } catch (e: unknown) {
-    errors.push(`A failed: ${e instanceof Error ? e.message : String(e)}`);
-  }
-
-  // C: Wiki lint
-  try {
-    const result = await spawnL2(
-      group,
-      `Run wiki-lint skill: check /workspace/group/wiki/ for frontmatter issues, broken [[links]], and duplicates. Report findings without auto-fixing.`,
-      180,
-    );
-    actions.push(`C: Wiki lint complete`);
-  } catch (e: unknown) {
-    errors.push(`C failed: ${e instanceof Error ? e.message : String(e)}`);
-  }
-
-  // E: Memory GC (stale tagging)
-  try {
-    if (fs.existsSync(wikiDir)) {
-      const now = Date.now();
-      const staleMs = STALE_THRESHOLD_DAYS * 24 * 60 * 60 * 1000;
-      let taggedCount = 0;
-
-      for (const file of fs.readdirSync(wikiDir)) {
-        if (!file.endsWith('.md')) continue;
-        const filePath = path.join(wikiDir, file);
-        const stat = fs.statSync(filePath);
-        const content = fs.readFileSync(filePath, 'utf-8');
-        if (
-          (now - stat.mtimeMs > staleMs &&
-            !content.includes('type: decision') &&
-            !content.includes('type: fact') &&
-            !content.includes('tags:')) ||
-          !content.includes('stale')
-        ) {
-          // Add stale tag if not present
-          if (!content.includes('stale')) {
-            const updated = content.replace(
-              /^tags: (.*)\n/,
-              'tags: $1, stale]\n',
-            );
-            fs.writeFileSync(filePath, updated);
-            taggedCount++;
-          }
-        }
-      }
-      if (taggedCount > 0)
-        actions.push(`E: Tagged ${taggedCount} stale entries`);
-    }
-  } catch (e: unknown) {
-    errors.push(`E failed: ${e instanceof Error ? e.message : String(e)}`);
-  }
-
-  return {
-    id: `daily-${group}-${Date.now()}`,
     group,
     status:
       errors.length === 0
@@ -347,35 +252,9 @@ function watchGroupIpc(
 
 // ── Daily Schedule ────────────────────────────────────────────────────────────
 
-function scheduleDailyMaintenance(
-  groups: RegisteredGroup[],
-  onDaily: (group: string) => void,
-) {
-  const check = () => {
-    const now = new Date();
-    if (now.getHours() === DAILY_MAINTENANCE_HOUR) {
-      log('Daily maintenance triggered', {
-        groups: groups.map((g) => g.folder),
-      });
-      for (const group of groups) {
-        onDaily(group.folder);
-      }
-    }
-  };
-
-  // Check every minute
-  setInterval(check, 60_000);
-  // Also check on startup
-  check();
-}
-
 // ── Result Logging ─────────────────────────────────────────────────────────────
 
 function writeResult(result: MaintenanceResult) {
-  const groups = getGroups();
-  const group = groups.find((g) => g.folder === result.group);
-  if (!group) return;
-
   const ipcDir = resolveGroupIpcPath(result.group);
   const resultsDir = path.join(ipcDir, 'maintenance', 'results');
   fs.mkdirSync(resultsDir, { recursive: true });
@@ -400,10 +279,7 @@ async function processQueue() {
   while (pendingQueue.length > 0) {
     const pending = pendingQueue.shift()!;
     try {
-      const result =
-        pending.type === 'compaction' || pending.type === 'l3_end'
-          ? await handleCompaction(pending)
-          : await runDailyMaintenance(pending.group);
+      const result = await handleCompaction(pending);
 
       writeResult(result);
     } catch (e: unknown) {
@@ -460,17 +336,6 @@ async function main() {
     });
     log('Watching IPC for group', { group: group.folder });
   }
-
-  // Schedule daily maintenance
-  scheduleDailyMaintenance(groups, (groupFolder) => {
-    pendingQueue.push({
-      id: `daily-${groupFolder}-${Date.now()}`,
-      group: groupFolder,
-      type: 'daily',
-      timestamp: new Date().toISOString(),
-    });
-    processQueue();
-  });
 
   log('memory-maintenance daemon running');
 
