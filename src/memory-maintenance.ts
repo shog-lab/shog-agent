@@ -17,7 +17,6 @@
 import fs from 'fs';
 import path from 'path';
 import { spawn } from 'child_process';
-import type { RegisteredGroup } from './types.js';
 import { initDatabase, getAllRegisteredGroups } from './db.js';
 import { resolveGroupIpcPath } from './group-folder.js';
 import { logger } from './logger.js';
@@ -25,14 +24,14 @@ import { logger } from './logger.js';
 // ── Config ──────────────────────────────────────────────────────────────────
 
 const POLL_INTERVAL_MS = 30_000; // Poll IPC dir every 30s
-const CONCURRENCY = 2; // Max concurrent L2 spawns per group
+const MAX_CONCURRENT = 2; // Max concurrent L2 spawns across all groups
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
 interface PendingMaintenance {
   id: string;
   group: string;
-  type: 'compaction' | 'daily' | 'l3_end';
+  type: 'compaction';
   sessionId?: string;
   timestamp: string;
   payload?: {
@@ -67,29 +66,28 @@ async function spawnL2(
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const repoPath = path.join(process.cwd(), 'groups', group);
-    const maintenanceScript = path.join(
-      process.cwd(),
-      'container',
-      'system-prompt.md',
+    const piBin = '/Users/maoxiongyu/.nvm/versions/node/v24.14.0/bin/pi';
+
+    const proc = spawn(
+      piBin,
+      [
+        '--model',
+        process.env.MODEL ?? 'MiniMax-M2.7',
+        '-p',
+        '--no-skills',
+        '--append-system-prompt',
+        `You are a maintenance sub-agent for group ${group}. Execute the following task and report results as plain text.\n\nTask: ${task}`,
+        task,
+      ],
+      {
+        cwd: repoPath,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: {
+          ...process.env,
+          MODEL: process.env.MODEL ?? 'minimax-cn/MiniMax-M2.7',
+        },
+      },
     );
-
-    // Build a minimal pi command for the maintenance task
-    const args = [
-      'pi',
-      '--model',
-      process.env.MODEL ?? 'minimax-cn/MiniMax-M2.7',
-      '-p',
-      '--no-skills',
-      '--append-system-prompt',
-      `You are a maintenance sub-agent for group ${group}. Execute the following task and report results as plain text.\n\nTask: ${task}`,
-      task,
-    ];
-
-    const proc = spawn(args[0], args.slice(1), {
-      cwd: repoPath,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, HOME: '/home/node' },
-    });
 
     let stdout = '';
     let stderr = '';
@@ -208,7 +206,7 @@ Write result as: SKILLWRITTEN:<path> or SKIP`,
 // ── IPC Watching ─────────────────────────────────────────────────────────────
 
 function watchGroupIpc(
-  group: RegisteredGroup,
+  group: { folder: string; name: string },
   onPending: (pending: PendingMaintenance) => void,
 ) {
   const ipcDir = resolveGroupIpcPath(group.folder);
@@ -250,8 +248,6 @@ function watchGroupIpc(
   return () => clearInterval(interval);
 }
 
-// ── Daily Schedule ────────────────────────────────────────────────────────────
-
 // ── Result Logging ─────────────────────────────────────────────────────────────
 
 function writeResult(result: MaintenanceResult) {
@@ -270,40 +266,38 @@ function writeResult(result: MaintenanceResult) {
 // ── Pending Queue ─────────────────────────────────────────────────────────────
 
 const pendingQueue: PendingMaintenance[] = [];
-let processing = false;
+let activeCount = 0;
 
 async function processQueue() {
-  if (processing || pendingQueue.length === 0) return;
-  processing = true;
+  if (activeCount >= MAX_CONCURRENT) return;
 
-  while (pendingQueue.length > 0) {
+  while (pendingQueue.length > 0 && activeCount < MAX_CONCURRENT) {
     const pending = pendingQueue.shift()!;
-    try {
-      const result = await handleCompaction(pending);
+    activeCount++;
 
-      writeResult(result);
-    } catch (e: unknown) {
-      error(
-        `Maintenance task failed: ${e instanceof Error ? e.message : String(e)}`,
-        {
-          pendingId: pending.id,
+    handleCompaction(pending)
+      .then(writeResult)
+      .catch((e: unknown) => {
+        error(
+          `Maintenance task failed: ${e instanceof Error ? e.message : String(e)}`,
+          {
+            pendingId: pending.id,
+            group: pending.group,
+          },
+        );
+        writeResult({
+          id: pending.id,
           group: pending.group,
-        },
-      );
-      writeResult({
-        id: pending.id,
-        group: pending.group,
-        status: 'failed',
-        actions: [],
-        errors: [e instanceof Error ? e.message : String(e)],
+          status: 'failed',
+          actions: [],
+          errors: [e instanceof Error ? e.message : String(e)],
+        });
+      })
+      .finally(() => {
+        activeCount--;
+        processQueue();
       });
-    }
-
-    // Rate limit: wait between tasks
-    await new Promise((r) => setTimeout(r, 2000));
   }
-
-  processing = false;
 }
 
 // ── Entry Point ───────────────────────────────────────────────────────────────

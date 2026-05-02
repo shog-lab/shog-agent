@@ -22,6 +22,7 @@ module.exports = {
       env: {
         NODE_ENV: "production",
         TZ: "Asia/Shanghai",
+        MODEL: "minimax-cn/MiniMax-M2.7",
       },
     },
   ],
