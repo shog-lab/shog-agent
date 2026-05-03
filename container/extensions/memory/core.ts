@@ -484,10 +484,14 @@ export class MemoryCore {
 
   // --- Store ---
 
-  /** Save a memory to wiki/ (compaction goes to compaction/, rest to root) */
+  /** Save a memory. Compaction goes to raw/compaction/, rest goes to wiki/. */
   saveMemory(type: string, content: string, tags?: string[]): string {
-    const subdir = TYPE_SUBDIR[type];
-    const destDir = subdir ? join(this.wikiDir, subdir) : this.wikiDir;
+    let destDir: string;
+    if (type === "compaction") {
+      destDir = join(this.rawDir, "compaction");
+    } else {
+      destDir = this.wikiDir;
+    }
     mkdirSync(destDir, { recursive: true });
 
     const now = new Date();
