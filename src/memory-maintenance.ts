@@ -2,10 +2,13 @@
  * memory-maintenance — ShogAgent Maintenance Daemon
  *
  * Runs as a PM2-managed long-lived process.
- * Responsibilities (per-conversation only, compaction trigger):
- *   B: Analyze compaction summary → formal wiki entry
- *   D: Mark new wiki files for FTS5 index update
- *   F: L2 directly writes skill if repeated pattern found
+ * Responsibilities:
+ *   Per-conversation (compaction IPC): B + D + F
+ *     B: Analyze compaction summary → formal wiki entry
+ *     D: Mark new wiki files for FTS5 index update
+ *     F: L2 directly writes skill if repeated pattern found
+ *   Periodic (every 30 min): Session archival
+ *     Copy L1 session JSONL files to groups/{group}/raw/sessions/
  *
  * Trigger mechanism:
  * - Pi emits session_compact → memory extension writes to IPC:
@@ -24,6 +27,7 @@ import { logger } from './logger.js';
 // ── Config ──────────────────────────────────────────────────────────────────
 
 const POLL_INTERVAL_MS = 30_000; // Poll IPC dir every 30s
+const SESSION_SCAN_INTERVAL_MS = 30 * 60_000; // Scan sessions every 30 min
 const MAX_CONCURRENT = 2; // Max concurrent L2 spawns across all groups
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -331,6 +335,9 @@ async function main() {
     log('Watching IPC for group', { group: group.folder });
   }
 
+  // Start periodic session archival (L1 sessions)
+  startSessionArchival(groups);
+
   log('memory-maintenance daemon running');
 
   // Keep alive
@@ -338,6 +345,76 @@ async function main() {
     log('Received SIGTERM, shutting down');
     process.exit(0);
   });
+}
+
+// ── Session Archival ──────────────────────────────────────────────────────────
+
+function archiveSessions(groupFolder: string): void {
+  const srcBase = path.join(
+    process.cwd(),
+    'data',
+    'sessions',
+    groupFolder,
+    '.pi',
+    'agent',
+    'sessions',
+  );
+  const destDir = path.join(
+    process.cwd(),
+    'groups',
+    groupFolder,
+    'raw',
+    'sessions',
+  );
+
+  if (!fs.existsSync(srcBase)) return;
+
+  let archived = 0;
+  try {
+    fs.mkdirSync(destDir, { recursive: true });
+
+    // Recursively find all .jsonl files (sessions are in subdirs like --workspace-group--/)
+    const visit = (dir: string) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          visit(full);
+        } else if (entry.name.endsWith('.jsonl')) {
+          const rel = path.relative(srcBase, full);
+          const destPath = path.join(destDir, rel);
+          if (fs.existsSync(destPath)) continue;
+          fs.mkdirSync(path.dirname(destPath), { recursive: true });
+          try {
+            fs.copyFileSync(full, destPath);
+            archived++;
+          } catch {
+            // skip individual copy failures
+          }
+        }
+      }
+    };
+    visit(srcBase);
+  } catch {
+    // skip dir read failures
+  }
+
+  if (archived > 0) {
+    log(`Archived ${archived} sessions for ${groupFolder}`);
+  }
+}
+
+function startSessionArchival(groups: Array<{ folder: string }>): void {
+  // Run immediately on startup
+  for (const group of groups) {
+    archiveSessions(group.folder);
+  }
+
+  // Then run on interval
+  setInterval(() => {
+    for (const group of groups) {
+      archiveSessions(group.folder);
+    }
+  }, SESSION_SCAN_INTERVAL_MS);
 }
 
 main().catch((e) => {

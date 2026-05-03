@@ -26,3 +26,17 @@ pi --extension "$SHOG_DIR/container/extensions/memory" \
    "${SKILL_ARGS[@]}" \
    --append-system-prompt "$(cat "$SHOG_DIR/container/system-prompt.md")" \
    --append-system-prompt "$(cat "$GROUP_DIR/AGENTS.md")"
+PI_EXIT=$?
+
+# Archive L3 session files to group raw/sessions/
+SESSION_SRC="$HOME/.pi/agent/sessions"
+SESSION_DEST="$SHOG_DIR/groups/$GROUP/raw/sessions"
+if [ -d "$SESSION_SRC" ]; then
+  mkdir -p "$SESSION_DEST"
+  for f in "$SESSION_SRC"/*.jsonl; do
+    [ -f "$f" ] || continue
+    cp "$f" "$SESSION_DEST/"
+  done
+fi
+
+exit $PI_EXIT
