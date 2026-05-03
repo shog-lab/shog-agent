@@ -1,17 +1,16 @@
 /**
  * ShogAgent Memory Extension for pi-coding-agent
  *
- * Thin wrapper around MemoryCore. Hooks into agent lifecycle:
- * - session_before_compact → can customize / cancel compaction (optional)
- * - session_compact → auto-save compaction summaries + notify maintenance daemon
+ * Hooks into agent lifecycle:
+ * - session_compact → auto-save compaction summary + spawn L2 for B+D+F
  * - before_agent_start → inject L1 + L2/L3 memories + KG into system prompt
- *
- * All logic lives in core.ts. This file only does wiring.
  */
 
+import { spawn } from "node:child_process";
+import { execSync } from "node:child_process";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { MemoryCore } from "./core.js";
 
 // --- Config ---
@@ -33,7 +32,6 @@ function getCore(): MemoryCore {
     dbPath: DB_PATH,
     legacyMemoryDir: existsSync(LEGACY_MEMORY_DIR) ? LEGACY_MEMORY_DIR : undefined,
   });
-  // Migrate llm-wiki/ if it exists (only for dingtalk-shog initially)
   if (existsSync(LEGACY_LLM_WIKI_DIR)) {
     core.migrateLegacyLlmWiki(LEGACY_LLM_WIKI_DIR);
   }
@@ -41,34 +39,73 @@ function getCore(): MemoryCore {
   return core;
 }
 
+// --- B+D+F: spawn L2 for maintenance task ---
+
+function isInContainer(): boolean {
+  return existsSync("/.dockerenv") || process.env.IN_DOCKER === "1";
+}
+
+function findPiBin(): string {
+  if (isInContainer()) {
+    return "/app/node_modules/.bin/pi";
+  }
+  // L3 on host: find pi in PATH
+  try {
+    return execSync("which pi", { encoding: "utf8" }).trim();
+  } catch {
+    // Fallback
+    return join(process.env.HOME || "", ".nvm", "versions", "node", "v24.14.0", "bin", "pi");
+  }
+}
+
+function spawnMaintenanceL2(summaryFile: string): void {
+  const piBin = findPiBin();
+  const groupDir = GROUP_DIR;
+
+  // Build minimal task prompt for B+D+F
+  // L2 reads summary file, decides wiki entry, marks FTS5, writes skill if needed
+  const taskPrompt = `Maintenance task for compaction summary.
+
+Read the compaction summary at: ${summaryFile}
+
+Group directory: ${groupDir}
+
+Task:
+1. Read the summary file
+2. If it contains new decisions, facts, or patterns worth preserving → write a formal wiki entry to ${groupDir}/wiki/ (type: decision/fact/note, with frontmatter: date, type, tags)
+3. Done. Report what you found/decided in plain text.`;
+
+  const args = [
+    "-p",
+    "--no-extensions",
+    "--model", process.env.MODEL ?? "minimax-cn/MiniMax-M2.7",
+    "--append-system-prompt", "You are a maintenance sub-agent. Rules: do the task, write wiki entries if needed, return plain text summary of what you did.",
+    taskPrompt,
+  ];
+
+  // Detached so hook doesn't block
+  const proc = spawn(piBin, args, {
+    cwd: groupDir,
+    detached: true,
+    stdio: "ignore",
+  });
+
+  proc.unref();
+}
+
 // --- Extension ---
 
 export default function memExtension(pi: ExtensionAPI) {
-  // Auto-save compaction summaries + notify maintenance daemon via IPC
+  // On compaction: save summary + spawn L2 for B+D+F
   pi.on("session_compact", (event) => {
+    // 1. Save compaction summary to raw/compaction/
     const summaryFile = getCore().saveMemory("compaction", event.compactionEntry.summary);
 
-    // Write IPC notification for memory-maintenance daemon (runs on host)
-    const groupFolder = process.env.GROUP_FOLDER || "unknown";
-    const ipcPendingDir = `/workspace/ipc/${groupFolder}/maintenance/pending`;
+    // 2. Spawn L2 (detached) for B+D+F — non-blocking
     try {
-      mkdirSync(ipcPendingDir, { recursive: true });
-      const id = `compact-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      const payload = {
-        id,
-        group: groupFolder,
-        type: "compaction" as const,
-        sessionId: event.compactionEntry.id,
-        timestamp: new Date().toISOString(),
-        payload: {
-          summaryFile,
-          tokensBefore: event.compactionEntry.tokensBefore,
-        },
-      };
-      writeFileSync(`${ipcPendingDir}/${id}.json`, JSON.stringify(payload, null, 2));
+      spawnMaintenanceL2(summaryFile);
     } catch (e) {
-      // Non-fatal: IPC write failure shouldn't break compaction
-      console.error("[memory] Failed to write IPC notification:", e);
+      console.error("[memory] Failed to spawn maintenance L2:", e);
     }
   });
 
@@ -96,7 +133,7 @@ export default function memExtension(pi: ExtensionAPI) {
       parts.push(lines.join("\n"));
     }
 
-    // L2/L3: Query-relevant search (FTS5 — vector search is async, handled in core.buildContext)
+    // L2/L3: Query-relevant search (FTS5)
     const l1Paths = new Set(l1Entries.map((e) => e.filePath));
     const searchResults = mc.searchFTS5(event.prompt)
       .filter((r) => r.score >= MIN_SCORE_THRESHOLD && !l1Paths.has(r.entry.filePath));
@@ -116,7 +153,7 @@ export default function memExtension(pi: ExtensionAPI) {
       parts.push(lines.join("\n"));
     }
 
-    // [[link]] resolution from search results
+    // [[link]] resolution
     const seenPaths = new Set([...l1Paths, ...searchResults.map((r) => r.entry.filePath)]);
     const linkedEntries = [];
     for (const { entry } of searchResults) {
@@ -141,7 +178,7 @@ export default function memExtension(pi: ExtensionAPI) {
       parts.push(lines.join("\n"));
     }
 
-    // Knowledge graph: inject triples for entities mentioned in prompt
+    // Knowledge graph
     const kgBlock = mc.buildKGContext(event.prompt);
     if (kgBlock) parts.push(kgBlock);
 
