@@ -30,16 +30,19 @@ PI_EXIT=$?
 
 # Archive L3 session files to group raw/sessions/
 # Runs on normal exit AND on SIGINT (Ctrl+C)
+# Sessions may be in subdirectories (e.g. --workspace-group--/), copy recursively
 SESSION_SRC="$HOME/.pi/agent/sessions"
 SESSION_DEST="$SHOG_DIR/groups/$GROUP/raw/sessions"
 archivate_sessions() {
-  if [ -d "$SESSION_SRC" ]; then
-    mkdir -p "$SESSION_DEST"
-    for f in "$SESSION_SRC"/*.jsonl; do
-      [ -f "$f" ] || continue
-      cp "$f" "$SESSION_DEST/"
-    done
-  fi
+  if [ ! -d "$SESSION_SRC" ]; then return; fi
+  mkdir -p "$SESSION_DEST"
+  # Recursively copy all .jsonl files, preserving subdirectory structure
+  find "$SESSION_SRC" -name "*.jsonl" -type f | while read -r src; do
+    rel="${src#$SESSION_SRC/}"
+    dest="$SESSION_DEST/$rel"
+    mkdir -p "$(dirname "$dest")"
+    cp "$src" "$dest"
+  done
 }
 trap archivate_sessions EXIT INT TERM
 

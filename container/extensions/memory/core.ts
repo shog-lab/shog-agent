@@ -239,7 +239,6 @@ export class MemoryCore {
     this.embedModel = opts.embedModel ?? this.config.embedding.model;
 
     // Ensure wiki/ subdirectories exist
-    mkdirSync(join(this.wikiDir, "compaction"), { recursive: true });
     mkdirSync(this.rawDir, { recursive: true });
 
     // Migrate legacy memory/ → wiki/ if needed
