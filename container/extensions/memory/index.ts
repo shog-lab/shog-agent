@@ -9,8 +9,8 @@
 import { spawn } from "node:child_process";
 import { execSync } from "node:child_process";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { existsSync } from "node:fs";
+import { basename, join } from "node:path";
 import { MemoryCore } from "./core.js";
 
 // --- Config ---
