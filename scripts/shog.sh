@@ -29,14 +29,18 @@ pi --extension "$SHOG_DIR/container/extensions/memory" \
 PI_EXIT=$?
 
 # Archive L3 session files to group raw/sessions/
+# Runs on normal exit AND on SIGINT (Ctrl+C)
 SESSION_SRC="$HOME/.pi/agent/sessions"
 SESSION_DEST="$SHOG_DIR/groups/$GROUP/raw/sessions"
-if [ -d "$SESSION_SRC" ]; then
-  mkdir -p "$SESSION_DEST"
-  for f in "$SESSION_SRC"/*.jsonl; do
-    [ -f "$f" ] || continue
-    cp "$f" "$SESSION_DEST/"
-  done
-fi
+archivate_sessions() {
+  if [ -d "$SESSION_SRC" ]; then
+    mkdir -p "$SESSION_DEST"
+    for f in "$SESSION_SRC"/*.jsonl; do
+      [ -f "$f" ] || continue
+      cp "$f" "$SESSION_DEST/"
+    done
+  fi
+}
+trap archivate_sessions EXIT INT TERM
 
 exit $PI_EXIT
