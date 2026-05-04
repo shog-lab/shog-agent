@@ -9,6 +9,7 @@
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { existsSync, readdirSync, copyFileSync, mkdirSync, readFileSync, statSync, writeFileSync, appendFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
 import { basename, dirname, join, relative } from "node:path";
 import { MemoryCore } from "./core.js";
 
@@ -87,22 +88,7 @@ function getCore(): MemoryCore {
   return core;
 }
 
-// --- Classify subject (who this is about) ---
-
-const SUBJECT_PATTERNS: Array<{ pattern: RegExp; subject: string }> = [
-  { pattern: /(?:用户说|user said|I was told|用户要求|用户希望|user want|user expect)/i, subject: "user" },
-  { pattern: /(?:项目|project|代码|repository|架构|architecture|代码库|这个系统)/i, subject: "project" },
-  { pattern: /(?:我建议|I suggest|I think|I recommend|我认为|我决定)/i, subject: "feedback" },
-];
-
-function classifySubject(summary: string): string {
-  for (const { pattern, subject } of SUBJECT_PATTERNS) {
-    if (pattern.test(summary)) return subject;
-  }
-  return "reference";
-}
-
-// --- B continued: maintenance log for observability ---
+// --- Maintenance log for observability ---
 
 function logMaintenance(action: string, detail: Record<string, unknown>): void {
   const logDir = join(GROUP_DIR, "raw", "maintenance-log");
@@ -177,16 +163,83 @@ function detectSkillPattern(): string | null {
 
     const repeated = goals.find((g) => g.count >= GOAL_REPEAT_THRESHOLD);
     if (!repeated) return null;
-    const repeated = goals.find((g) => g.count >= GOAL_REPEAT_THRESHOLD);
-    if (!repeated) return null;
 
-    // Log suggestion instead of auto-creating empty skill
-    const skillSuggestion = repeated.goal.split("\n")[0].replace(/\s*\([^)]*\)/g, "").trim().slice(0, 50);
-    console.log(`[memory] Repeated goal detected (${repeated.count}x): ${skillSuggestion}`);
-    logMaintenance("F-suggest", { goal: skillSuggestion, count: repeated.count });
-    return null;
+    // Collect all compaction summaries related to this repeated goal
+    const relatedSummaries: string[] = [];
+    for (const { name } of files) {
+      const content = readFileSync(join(compactionDir, name), "utf-8");
+      const goal = extractGoal(content);
+      if (goal && goalSimilarity(goal, repeated.goal) >= 0.7) {
+        // Strip frontmatter and return just the body
+        const body = content.replace(/^---[\s\S]*?---\n/, "").slice(0, 2000);
+        relatedSummaries.push(`=== ${name} ===\n${body}`);
+      }
+    }
+
+    return { goal: repeated.goal, summaries: relatedSummaries.join("\n\n"), count: repeated.count };
   } catch {
     return null;
+  }
+}
+
+// --- L2 spawn helpers for B and F tasks ---
+
+const PI_BIN = "/app/node_modules/.bin/pi";
+
+/** Spawn L2 to execute B (classify subject + write wiki) or F (generate skill content) */
+function spawnL2Task(taskType: "B" | "F", params: Record<string, unknown>): Record<string, unknown> {
+  const systemPrompt = taskType === "B"
+    ? [
+        "You are a memory classifier sub-agent.",
+        "Read the summary below, classify its subject (who this is about), and write it to the wiki.",
+        "",
+        "Rules:",
+        "- Classify subject as one of: user (user preferences/requests), project (project/architecture/code), feedback (agent suggestions/decisions), reference (external knowledge)",
+        "- Write the content to <GROUP_DIR>/wiki/ as a .md file",
+        "- Use frontmatter with date, type=memory, tags=[subject:<value>]",
+        "- Return JSON: {"subject": "<value>", "wikiFile": "<path written>"}",
+        "",
+        `<GROUP_DIR> is ${process.env.GROUP_DIR || "/workspace/group"}`,
+      ].join("\n")
+    : [
+        "You are a skill synthesizer sub-agent.",
+        "Read the provided goal and related compaction summaries, then generate a useful SKILL.md.",
+        "",
+        "Rules:",
+        "- Extract constraints, decisions, typical next steps from the summaries",
+        "- Generate concrete, actionable skill content",
+        "- Write to <GROUP_DIR>/skills/<slug>/SKILL.md",
+        "- Return JSON: {"skillName": "<slug>", "skillFile": "<path written>"}",
+        "",
+        `<GROUP_DIR> is ${process.env.GROUP_DIR || "/workspace/group"}`,
+      ].join("\n");
+
+  const taskPrompt = taskType === "B"
+    ? `Classify this summary:\n\n${params.summary}\n\nReturn JSON with subject and wikiFile.`
+    : `Goal: ${params.goal}\n\nRelated compaction summaries:\n${params.summaries}\n\nReturn JSON with skillName and skillFile.`;
+
+  try {
+    const result = spawnSync(PI_BIN, [
+      "-p",
+      "--no-extensions",
+      "--model", process.env.MODEL ?? "minimax-cn/MiniMax-M2.7",
+      "--append-system-prompt", systemPrompt,
+      taskPrompt,
+    ], {
+      cwd: process.env.GROUP_DIR || "/workspace/group",
+      env: { ...process.env },
+      timeout: 60000,
+    });
+
+    const output = (result.stdout as Buffer)?.toString() ?? "";
+    // Try to parse JSON from output
+    const jsonMatch = output.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      return JSON.parse(jsonMatch[0]);
+    }
+    return { ok: false, error: "no JSON in L2 output", raw: output.slice(0, 200) };
+  } catch (e) {
+    return { ok: false, error: String(e) };
   }
 }
 
@@ -194,23 +247,22 @@ function detectSkillPattern(): string | null {
 
 export default function memExtension(pi: ExtensionAPI) {
   // On compaction: save summary + do B+D+F maintenance
-  pi.on("session_compact", (event) => {
+  pi.on("session_compact", async (event) => {
     const summary = event.compactionEntry.summary;
-    const subject = classifySubject(summary);
 
     // 1. Save compaction summary to raw/compaction/
     getCore().saveMemory("compaction", summary);
 
-    // 2. Write to wiki using subject as primary axis (type=memory is placeholder)
-    try {
-      const wikiFile = getCore().saveMemory("memory", summary, [`subject:${subject}`]);
-      logMaintenance("B", { subject, wikiFile });
-    } catch (e) {
-      console.error("[memory] saveMemory failed:", e);
-      logMaintenance("B-error", { subject, error: String(e) });
+    // 2. B: spawn L2 to classify subject and write wiki entry
+    const bResult = spawnL2Task("B", { summary });
+    if (bResult.ok !== false && bResult.wikiFile) {
+      logMaintenance("B", { subject: bResult.subject, wikiFile: bResult.wikiFile });
+    } else {
+      console.error("[memory] B L2 failed:", bResult.error);
+      logMaintenance("B-error", { error: bResult.error });
     }
 
-    // 3. D: sync index so new files are indexed
+    // 3. D: sync index (sync, no spawn)
     try {
       getCore().syncIndex();
       logMaintenance("D", { synced: true });
@@ -219,13 +271,16 @@ export default function memExtension(pi: ExtensionAPI) {
       logMaintenance("D-error", { error: String(e) });
     }
 
-    // 4. F: detect repeated goals and create skill if pattern found
-    try {
-      const skillCreated = detectSkillPattern();
-      logMaintenance("F", { skillCreated: skillCreated ?? "none" });
-    } catch (e) {
-      console.error("[memory] detectSkillPattern failed:", e);
-      logMaintenance("F-error", { error: String(e) });
+    // 4. F: detect repeated goals via pattern match, then spawn L2 to generate skill
+    const skillResult = detectSkillPattern();
+    if (skillResult) {
+      const fResult = spawnL2Task("F", { goal: skillResult.goal, summaries: skillResult.summaries });
+      if (fResult.ok !== false && fResult.skillFile) {
+        logMaintenance("F", { skillName: fResult.skillName, skillFile: fResult.skillFile });
+      } else {
+        console.error("[memory] F L2 failed:", fResult.error);
+        logMaintenance("F-error", { error: fResult.error });
+      }
     }
   });
 
