@@ -8,7 +8,7 @@
  */
 
 import type { ExtensionAPI from "@mariozechner/pi-coding-agent";
-import { existsSync, readdirSync, copyFileSync, mkdirSync } from "node:fs";
+import { existsSync, readdirSync, copyFileSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, relative } from "node:path";
 import { MemoryCore } from "./core.js";
 
@@ -130,10 +130,89 @@ function classifySummary(summary: string): string | null {
   return null;
 }
 
+// --- F: detect repeated goals and suggest/create skills ---
+
+const GOAL_REPEAT_THRESHOLD = 3;
+const RECENT_COMPACTIONS_TO_SCAN = 10;
+
+function extractGoal(summary: string): string | null {
+  const match = summary.match(/^##\s+Goal\s*\n([\s\S]*?)(?:\n##|\n---)/m);
+  if (!match) return null;
+  const goal = match[1].trim();
+  return goal.length > 0 ? goal : null;
+}
+
+function detectSkillPattern(): string | null {
+  const compactionDir = join(GROUP_DIR, "raw", "compaction");
+  if (!existsSync(compactionDir)) return null;
+
+  try {
+    const files = readdirSync(compactionDir)
+      .filter((f) => f.endsWith(".md"))
+      .map((f) => ({
+        name: f,
+        mtime: statSync(join(compactionDir, f)).mtimeMs,
+      }))
+      .sort((a, b) => b.mtime - a.mtime)
+      .slice(0, RECENT_COMPACTIONS_TO_SCAN);
+
+    if (files.length < GOAL_REPEAT_THRESHOLD) return null;
+
+    const goals: Array<{ goal: string; count: number }> = [];
+    for (const { name } of files) {
+      const content = readFileSync(join(compactionDir, name), "utf-8");
+      const goal = extractGoal(content);
+      if (!goal) continue;
+
+      const existing = goals.find((g) => g.goal === goal);
+      if (existing) {
+        existing.count++;
+      } else {
+        goals.push({ goal, count: 1 });
+      }
+    }
+
+    const repeated = goals.find((g) => g.count >= GOAL_REPEAT_THRESHOLD);
+    if (!repeated) return null;
+
+    // Build skill name from goal
+    const skillName = repeated.goal
+      .split("\n")[0]
+      .replace(/^[-*]\s*/, "")
+      .trim()
+      .slice(0, 50)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "");
+
+    if (!skillName) return null;
+
+    // Check if skill already exists
+    const skillDir = join(GROUP_DIR, "skills", skillName);
+    if (existsSync(skillDir)) return null;
+
+    // Write skill file
+    const skillContent = `---  
+description: Auto-generated skill from repeated goal pattern.
+---
+
+# ${repeated.goal.split("\n")[0].trim()}
+
+Auto-created after detecting this goal repeated ${repeated.count} times across compactions.
+`;
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(join(skillDir, "SKILL.md"), skillContent, "utf-8");
+    console.log(`[memory] Created skill "${skillName}" from repeated goal`);
+    return skillName;
+  } catch {
+    return null;
+  }
+}
+
 // --- Extension ---
 
 export default function memExtension(pi: ExtensionAPI) {
-  // On compaction: save summary + do B+D maintenance (F is no-op for now)
+  // On compaction: save summary + do B+D+F maintenance
   pi.on("session_compact", (event) => {
     // 1. Save compaction summary to raw/compaction/
     getCore().saveMemory("compaction", event.compactionEntry.summary);
@@ -154,6 +233,13 @@ export default function memExtension(pi: ExtensionAPI) {
       getCore().syncIndex();
     } catch (e) {
       console.error("[memory] syncIndex failed:", e);
+    }
+
+    // 4. F: detect repeated goals and create skill if pattern found
+    try {
+      detectSkillPattern();
+    } catch (e) {
+      console.error("[memory] detectSkillPattern failed:", e);
     }
   });
 
