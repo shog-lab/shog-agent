@@ -139,7 +139,10 @@ function extractGoal(summary: string): string | null {
   const match = summary.match(/^##\s+Goal\s*\n([\s\S]*?)(?:\n##|\n---)/m);
   if (!match) return null;
   const goal = match[1].trim();
-  return goal.length > 0 ? goal : null;
+  if (!goal) return null;
+  // Use only first line as the goal key (most stable for comparison)
+  const firstLine = goal.split("\n")[0].replace(/^[-*\d.\s]+/, "").trim();
+  return firstLine.length > 0 ? firstLine : null;
 }
 
 function detectSkillPattern(): string | null {
@@ -175,15 +178,13 @@ function detectSkillPattern(): string | null {
     const repeated = goals.find((g) => g.count >= GOAL_REPEAT_THRESHOLD);
     if (!repeated) return null;
 
-    // Build skill name from goal
-    const skillName = repeated.goal
-      .split("\n")[0]
-      .replace(/^[-*]\s*/, "")
-      .trim()
-      .slice(0, 50)
+    // Build skill name from first line, strip parenthetical suffixes
+    const firstLine = repeated.goal.split("\n")[0].replace(/\s*\([^)]*\)/g, "").trim();
+    const skillName = firstLine
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-|-$/g, "");
+      .replace(/^-|-$/g, "")
+      .slice(0, 50);
 
     if (!skillName) return null;
 
