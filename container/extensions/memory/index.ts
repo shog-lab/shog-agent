@@ -9,7 +9,7 @@
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { existsSync, readdirSync, copyFileSync, mkdirSync, readFileSync, statSync, writeFileSync, appendFileSync } from "node:fs";
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { basename, dirname, join, relative } from "node:path";
 import { MemoryCore } from "./core.js";
 
@@ -187,39 +187,39 @@ function detectSkillPattern(): string | null {
 const PI_BIN = "/app/node_modules/.bin/pi";
 
 /** Spawn L2 to execute B (classify subject + write wiki) or F (generate skill content) */
-function spawnL2Task(taskType: "B" | "F", params: Record<string, unknown>): Record<string, unknown> {
-  const systemPrompt = taskType === "B"
-    ? [
-        "You are a memory classifier sub-agent.",
-        "Read the summary below, classify its subject (who this is about), and write it to the wiki.",
-        "",
-        "Rules:",
-        "- Classify subject as one of: user (user preferences/requests), project (project/architecture/code), feedback (agent suggestions/decisions), reference (external knowledge)",
-        "- Write the content to <GROUP_DIR>/wiki/ as a .md file",
-        "- Use frontmatter with date, type=memory, tags=[subject:<value>]",
-        "- Return JSON: {"subject": "<value>", "wikiFile": "<path written>"}",
-        "",
-        `<GROUP_DIR> is ${process.env.GROUP_DIR || "/workspace/group"}`,
-      ].join("\n")
-    : [
-        "You are a skill synthesizer sub-agent.",
-        "Read the provided goal and related compaction summaries, then generate a useful SKILL.md.",
-        "",
-        "Rules:",
-        "- Extract constraints, decisions, typical next steps from the summaries",
-        "- Generate concrete, actionable skill content",
-        "- Write to <GROUP_DIR>/skills/<slug>/SKILL.md",
-        "- Return JSON: {"skillName": "<slug>", "skillFile": "<path written>"}",
-        "",
-        `<GROUP_DIR> is ${process.env.GROUP_DIR || "/workspace/group"}`,
-      ].join("\n");
+function spawnL2Task(taskType: "B" | "F", params: Record<string, unknown>): Promise<Record<string, unknown>> {
+  return new Promise((resolve) => {
+    const systemPrompt = taskType === "B"
+      ? [
+          "You are a memory classifier sub-agent.",
+          "Read the summary below, classify its subject (who this is about), and write it to the wiki.",
+          "",
+          "Rules:",
+          "- Classify subject as one of: user, project, feedback, reference",
+          "- Write the content to <GROUP_DIR>/wiki/ as a .md file",
+          "- Use frontmatter: date, type=memory, tags=[subject:<value>]",
+          '- Return JSON: {"subject": "<value>", "wikiFile": "<path written>"}',
+          "",
+          `<GROUP_DIR> is ${process.env.GROUP_DIR || "/workspace/group"}`,
+        ].join("\n")
+      : [
+          "You are a skill synthesizer sub-agent.",
+          "Read the provided goal and related compaction summaries, then generate a useful SKILL.md.",
+          "",
+          "Rules:",
+          "- Extract constraints, decisions, typical next steps from the summaries",
+          "- Generate concrete, actionable skill content",
+          "- Write to <GROUP_DIR>/skills/<slug>/SKILL.md",
+          '- Return JSON: {"skillName": "<slug>", "skillFile": "<path written>"}',
+          "",
+          `<GROUP_DIR> is ${process.env.GROUP_DIR || "/workspace/group"}`,
+        ].join("\n");
 
-  const taskPrompt = taskType === "B"
-    ? `Classify this summary:\n\n${params.summary}\n\nReturn JSON with subject and wikiFile.`
-    : `Goal: ${params.goal}\n\nRelated compaction summaries:\n${params.summaries}\n\nReturn JSON with skillName and skillFile.`;
+    const taskPrompt = taskType === "B"
+      ? `Classify this summary:\n\n${params.summary}\n\nReturn JSON with subject and wikiFile.`
+      : `Goal: ${params.goal}\n\nRelated compaction summaries:\n${params.summaries}\n\nReturn JSON with skillName and skillFile.`;
 
-  try {
-    const result = spawnSync(PI_BIN, [
+    const proc = spawn(PI_BIN, [
       "-p",
       "--no-extensions",
       "--model", process.env.MODEL ?? "minimax-cn/MiniMax-M2.7",
@@ -228,21 +228,34 @@ function spawnL2Task(taskType: "B" | "F", params: Record<string, unknown>): Reco
     ], {
       cwd: process.env.GROUP_DIR || "/workspace/group",
       env: { ...process.env },
-      timeout: 60000,
+      stdio: ["ignore", "pipe", "pipe"],
     });
 
-    const output = (result.stdout as Buffer)?.toString() ?? "";
-    // Try to parse JSON from output
-    const jsonMatch = output.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      return JSON.parse(jsonMatch[0]);
-    }
-    return { ok: false, error: "no JSON in L2 output", raw: output.slice(0, 200) };
-  } catch (e) {
-    return { ok: false, error: String(e) };
-  }
-}
+    let output = "";
+    proc.stdout?.on("data", (d) => { output += d.toString(); });
+    proc.stderr?.on("data", (d) => { output += d.toString(); });
 
+    const timer = setTimeout(() => {
+      proc.kill("SIGTERM");
+      resolve({ ok: false, error: "timeout after 60s" });
+    }, 60000);
+
+    proc.on("close", () => {
+      clearTimeout(timer);
+      const jsonMatch = output.match(/\{[\s\S]*?\}/);
+      if (jsonMatch) {
+        resolve(JSON.parse(jsonMatch[0]));
+      } else {
+        resolve({ ok: false, error: "no JSON in L2 output", raw: output.slice(0, 200) });
+      }
+    });
+
+    proc.on("error", (e) => {
+      clearTimeout(timer);
+      resolve({ ok: false, error: String(e) });
+    });
+  });
+}
 // --- Extension ---
 
 export default function memExtension(pi: ExtensionAPI) {
@@ -254,7 +267,8 @@ export default function memExtension(pi: ExtensionAPI) {
     getCore().saveMemory("compaction", summary);
 
     // 2. B: spawn L2 to classify subject and write wiki entry
-    const bResult = spawnL2Task("B", { summary });
+    // 2. B: spawn L2 to classify subject and write wiki entry
+    const bResult = await spawnL2Task("B", { summary });
     if (bResult.ok !== false && bResult.wikiFile) {
       logMaintenance("B", { subject: bResult.subject, wikiFile: bResult.wikiFile });
     } else {
@@ -274,7 +288,7 @@ export default function memExtension(pi: ExtensionAPI) {
     // 4. F: detect repeated goals via pattern match, then spawn L2 to generate skill
     const skillResult = detectSkillPattern();
     if (skillResult) {
-      const fResult = spawnL2Task("F", { goal: skillResult.goal, summaries: skillResult.summaries });
+      const fResult = await spawnL2Task("F", { goal: skillResult.goal, summaries: skillResult.summaries });
       if (fResult.ok !== false && fResult.skillFile) {
         logMaintenance("F", { skillName: fResult.skillName, skillFile: fResult.skillFile });
       } else {
