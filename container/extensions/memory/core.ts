@@ -327,7 +327,7 @@ export class MemoryCore {
         const tags = Array.isArray(meta.tags) ? meta.tags.join(",") : "";
         const memType = getMemoryType(tags, (meta.source as string) || (meta.type as string) || "note");
         const subdir = TYPE_SUBDIR[memType]; // only compaction has a subdir
-        const destDir = subdir ? join(this.wikiDir, subdir) : this.wikiDir;
+        const destDir = subdir ? join(this.rawDir, subdir) : this.wikiDir;
         mkdirSync(destDir, { recursive: true });
         const dest = join(destDir, file);
         if (!existsSync(dest)) {
