@@ -8,7 +8,7 @@
  */
 
 import type { ExtensionAPI from "@mariozechner/pi-coding-agent";
-import { existsSync, readdirSync, copyFileSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, copyFileSync, mkdirSync, readFileSync, statSync, writeFileSync, appendFileSync } from "node:fs";
 import { basename, dirname, join, relative } from "node:path";
 import { MemoryCore } from "./core.js";
 
@@ -106,7 +106,6 @@ const FACT_PATTERNS = [
  * Classify summary text and return memory type, or null if not worth saving
  */
 function classifySummary(summary: string): string | null {
-  const lower = summary.toLowerCase();
   const lines = summary.split("\n").filter((l) => l.trim());
 
   // Skip very short summaries
@@ -128,6 +127,40 @@ function classifySummary(summary: string): string | null {
   }
 
   return null;
+}
+
+// --- B continued: classify subject (who this is about) ---
+
+const SUBJECT_PATTERNS: Array<{ pattern: RegExp; subject: string }> = [
+  { pattern: /(?:用户说|user said|I was told|用户要求|用户希望|user want|user expect)/i, subject: "user" },
+  { pattern: /(?:项目|project|代码|repository|架构|architecture|代码库|这个系统)/i, subject: "project" },
+  { pattern: /(?:我建议|I suggest|I think|I recommend|我认为|我决定)/i, subject: "feedback" },
+];
+
+function classifySubject(summary: string): string {
+  for (const { pattern, subject } of SUBJECT_PATTERNS) {
+    if (pattern.test(summary)) return subject;
+  }
+  return "reference";
+}
+
+// --- B continued: maintenance log for observability ---
+
+function logMaintenance(action: string, detail: Record<string, unknown>): void {
+  const logDir = join(GROUP_DIR, "raw", "maintenance-log");
+  try {
+    mkdirSync(logDir, { recursive: true });
+    const date = new Date().toISOString().slice(0, 10);
+    const logFile = join(logDir, `${date}.jsonl`);
+    const entry = {
+      timestamp: new Date().toISOString(),
+      action,
+      ...detail,
+    };
+    appendFileSync(logFile, JSON.stringify(entry) + "\n");
+  } catch {
+    // Non-fatal
+  }
 }
 
 // --- F: detect repeated goals and suggest/create skills ---
@@ -224,32 +257,42 @@ Auto-created after detecting this goal repeated ${repeated.count} times across c
 export default function memExtension(pi: ExtensionAPI) {
   // On compaction: save summary + do B+D+F maintenance
   pi.on("session_compact", (event) => {
-    // 1. Save compaction summary to raw/compaction/
-    getCore().saveMemory("compaction", event.compactionEntry.summary);
-
-    // 2. B: auto-classify summary and write to wiki if worth preserving
     const summary = event.compactionEntry.summary;
     const memType = classifySummary(summary);
+    const subject = classifySubject(summary);
+
+    // 1. Save compaction summary to raw/compaction/
+    getCore().saveMemory("compaction", summary);
+
+    // 2. B: auto-classify summary and write to wiki if worth preserving
     if (memType) {
       try {
-        getCore().saveMemory(memType, summary);
+        const wikiFile = getCore().saveMemory(memType, summary, [`subject:${subject}`]);
+        logMaintenance("B", { memType, subject, wikiFile });
       } catch (e) {
         console.error("[memory] saveMemory failed:", e);
+        logMaintenance("B-error", { memType, subject, error: String(e) });
       }
+    } else {
+      logMaintenance("B-skip", { reason: "too short or no type match" });
     }
 
     // 3. D: sync index so new files are indexed
     try {
       getCore().syncIndex();
+      logMaintenance("D", { synced: true });
     } catch (e) {
       console.error("[memory] syncIndex failed:", e);
+      logMaintenance("D-error", { error: String(e) });
     }
 
     // 4. F: detect repeated goals and create skill if pattern found
     try {
-      detectSkillPattern();
+      const skillCreated = detectSkillPattern();
+      logMaintenance("F", { skillCreated: skillCreated ?? "none" });
     } catch (e) {
       console.error("[memory] detectSkillPattern failed:", e);
+      logMaintenance("F-error", { error: String(e) });
     }
   });
 

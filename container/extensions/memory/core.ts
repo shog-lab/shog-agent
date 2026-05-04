@@ -102,6 +102,18 @@ const STOPWORDS = new Set([
 
 const L1_TYPES = new Set(["preference", "decision", "fact"]);
 
+/** Per-type cap for L1 entries (max entries per type) */
+const L1_PER_TYPE_CAP = 10;
+
+/** Compute recency boost: 1.0 for recent, decays to (1 - maxBoost) for old entries */
+function recencyBoost(dateStr: string, recency: WikiConfig["recency"]): number {
+  if (!dateStr) return 0.5;
+  const ageMs = Date.now() - new Date(dateStr).getTime();
+  const ageDays = ageMs / (1000 * 60 * 60 * 24);
+  const decayFactor = Math.min(1.0, ageDays / recency.decayDays);
+  return 1.0 - (1.0 - recency.maxBoost) * (1.0 - decayFactor);
+}
+
 /** Map memory type → wiki/ subdirectory (only compaction is separated) */
 const TYPE_SUBDIR: Record<string, string> = {
   compaction: "compaction",
@@ -699,7 +711,12 @@ export class MemoryCore {
   // --- L1 Always-loaded ---
 
   loadL1(): MemoryEntry[] {
-    const entries: MemoryEntry[] = [];
+    const recency = this.config.recency;
+
+    // Collect all L1 entries with effective scores
+    type ScoredEntry = MemoryEntry & { _score: number };
+    const scored: ScoredEntry[] = [];
+
     for (const dir of this.getScanDirs()) {
       for (const filePath of collectMdFiles(dir)) {
         try {
@@ -708,18 +725,47 @@ export class MemoryCore {
           const tags = Array.isArray(meta.tags) ? meta.tags : [];
           const memType = getMemoryType(tags.join(","), (meta.type as string) || "note");
           if (L1_TYPES.has(memType)) {
-            entries.push({
+            const date = (meta.date as string) || "";
+            const typeWeight = this.config.typeWeights[memType] ?? 1.0;
+            const boost = recencyBoost(date, recency);
+            const score = typeWeight * boost;
+            scored.push({
               filePath,
-              date: (meta.date as string) || "",
+              date,
               type: (meta.type as string) || "note",
               tags: tags.length ? tags : undefined,
               content: body,
+              _score: score,
             });
           }
         } catch {}
       }
     }
-    return entries;
+
+    // Sort by score descending
+    scored.sort((a, b) => b._score - a._score);
+
+    // Per-type cap: keep top N per type
+    const byType = new Map<string, ScoredEntry[]>();
+    for (const entry of scored) {
+      const list = byType.get(entry.type) ?? [];
+      list.push(entry);
+      byType.set(entry.type, list);
+    }
+
+    const result: MemoryEntry[] = [];
+    for (const [, entries] of byType) {
+      result.push(...entries.slice(0, L1_PER_TYPE_CAP));
+    }
+
+    // Re-sort final result by score
+    result.sort((a, b) => {
+      const aEntry = scored.find((e) => e.filePath === a.filePath)!;
+      const bEntry = scored.find((e) => e.filePath === b.filePath)!;
+      return bEntry._score - aEntry._score;
+    });
+
+    return result;
   }
 
   // --- Triple extraction from files ---
