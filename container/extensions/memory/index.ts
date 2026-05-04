@@ -237,7 +237,7 @@ function spawnL2Task(taskType: "B" | "F", params: Record<string, unknown>): Prom
           "",
           "Rules:",
           "- Write to <GROUP_DIR>/wiki/ as a .md file",
-          "- Use frontmatter: date, type=memory, tags=[subject:<value>]",
+          "- Use frontmatter: date, source=compaction, tags=[subject:<value>]",
           '- Return JSON: {"subject": "<value>", "wikiFile": "<path written>"}',
           "",
           `<GROUP_DIR> is ${process.env.GROUP_DIR || "/workspace/group"}`,

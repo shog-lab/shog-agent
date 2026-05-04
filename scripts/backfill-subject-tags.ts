@@ -1,8 +1,7 @@
 #!/usr/bin/env npx tsx
 /**
  * Backfill subject tags for existing wiki entries.
- * Scans decision/fact/note files in wiki/ and adds subject: user/project/feedback/reference
- * based on classifySubject() patterns.
+ * Uses LLM to classify each entry's subject (user/project/feedback/reference).
  *
  * Run: npx tsx scripts/backfill-subject-tags.ts <group-name>
  * e.g.: npx tsx scripts/backfill-subject-tags.ts dingtalk-shog
@@ -10,20 +9,58 @@
 
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, basename } from "node:path";
+import { spawnSync } from "node:child_process";
 
-const SUBJECT_PATTERNS: Array<{ pattern: RegExp; subject: string }> = [
-  { pattern: /(?:用户说|user said|I was told|用户要求|用户希望|user want|user expect)/i, subject: "user" },
-  { pattern: /(?:项目|project|代码|repository|架构|architecture|代码库|这个系统)/i, subject: "project" },
-  { pattern: /(?:我建议|I suggest|I think|I recommend|我认为|我决定)/i, subject: "feedback" },
-];
+const PI_BIN = "/app/node_modules/.bin/pi";
 
 const L1_TYPES = new Set(["decision", "fact", "note"]);
 
-function classifySubject(content: string): string {
-  for (const { pattern, subject } of SUBJECT_PATTERNS) {
-    if (pattern.test(content)) return subject;
+const SYSTEM_PROMPT = [
+  "You are a memory classifier. Classify each memory by subject.",
+  "",
+  "## user — User preferences, requests, or constraints",
+  "When: The user explicitly asked for something or stated a preference/constraint",
+  'Examples: "用户希望用 pm2 管理进程" / "用户要求不提命令行"',
+  "",
+  "## project — Project code, architecture, or technical decisions",
+  "When: The content is about project structure, code, files, or how the system works",
+  'Examples: "代码迁移到了 raw/compaction/" / "项目用 Docker 管理"',
+  "",
+  "## feedback — Agent's own suggestions, decisions, or reflections",
+  "When: The agent recommends something, decides an approach, or reflects on what was done",
+  'Examples: "我建议用 subject tag 分类" / "决定把 compaction 移出 wiki"',
+  "",
+  "## reference — External knowledge, docs, or research",
+  "When: The content is about reading papers, docs, or external information",
+  'Examples: "读了一篇关于 agent memory 的论文"',
+  "",
+  `Classify this content and return JSON: {"subject": "one of: user, project, feedback, reference"}`,
+].join("\n");
+
+function classifyWithLLM(content: string): string {
+  try {
+    const result = spawnSync(PI_BIN, [
+      "-p",
+      "--no-extensions",
+      "--model", process.env.MODEL ?? "minimax-cn/MiniMax-M2.7",
+      "--append-system-prompt", SYSTEM_PROMPT,
+      `Classify this content:\n\n${content.slice(0, 3000)}\n\nReturn JSON.`,
+    ], {
+      timeout: 30000,
+    });
+
+    const output = (result.stdout as Buffer)?.toString() ?? "";
+    const jsonMatch = output.match(/\{[\s\S]*?\}/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      if (parsed.subject && ["user", "project", "feedback", "reference"].includes(parsed.subject)) {
+        return parsed.subject;
+      }
+    }
+    return "reference";
+  } catch {
+    return "reference";
   }
-  return "reference";
 }
 
 function parseFrontmatter(raw: string): { meta: Record<string, unknown>; body: string } {
@@ -47,7 +84,6 @@ function serializeFrontmatter(meta: Record<string, unknown>, body: string): stri
   const lines = ["---"];
   for (const [key, value] of Object.entries(meta)) {
     if (Array.isArray(value)) {
-      // Quote each tag value to handle colons safely in YAML
       const quoted = (value as string[]).map((v) => `"${v}"`).join(", ");
       lines.push(`${key}: [${quoted}]`);
     } else {
@@ -65,7 +101,6 @@ function backfillSubjectTags(groupDir: string): void {
     process.exit(1);
   }
 
-  // Scan flat wiki/ directory (decision/fact/note are at root, compaction is in subdir)
   let files: string[] = [];
   try {
     files = readdirSync(wikiDir)
@@ -93,7 +128,7 @@ function backfillSubjectTags(groupDir: string): void {
         continue;
       }
 
-      // Check if subject already exists in tags
+      // Check if subject already exists
       const existingTags = meta.tags as string | undefined;
       const tagsStr = existingTags || "";
       const tagsList = tagsStr ? tagsStr.split(",").map((t: string) => t.trim()) : [];
@@ -102,7 +137,7 @@ function backfillSubjectTags(groupDir: string): void {
         continue;
       }
 
-      const subject = classifySubject(body);
+      const subject = classifyWithLLM(body);
       const newTags = [...tagsList, `subject:${subject}`];
       const newMeta = { ...meta, tags: newTags };
       const newRaw = serializeFrontmatter(newMeta, body);
