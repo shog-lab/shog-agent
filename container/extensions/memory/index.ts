@@ -87,7 +87,48 @@ function getCore(): MemoryCore {
   return core;
 }
 
-// --- B+D+F: spawn L2 for maintenance task ---
+// --- B: classify summary and determine if wiki entry is needed ---
+
+const DECISION_PATTERNS = [
+  /decided|chose|adopted|will use|instead of|replaced|switched to|migrated to|using (?!this|that|the)/i,
+  /(?:new|changed|updated) (?:approach|strategy|method|model|architecture)/i,
+  /deprecated|废弃|停用|不再使用/i,
+];
+
+const FACT_PATTERNS = [
+  /^[-*] .+(?:installed|deployed|built|created|implemented)/im,
+  /(?:built|deployed|installed|implemented) .+ on \d{4}-\d{2}-\d{2}/i,
+  /\d+ (?:files?|sessions?|tasks?|groups?|agents?)/i,
+  /(?:error|bug|issue) .+ (?:fixed|resolved|detected)/i,
+];
+
+/**
+ * Classify summary text and return memory type, or null if not worth saving
+ */
+function classifySummary(summary: string): string | null {
+  const lower = summary.toLowerCase();
+  const lines = summary.split("\n").filter((l) => l.trim());
+
+  // Skip very short summaries
+  if (lines.length < 3) return null;
+
+  // Decision: strong signal
+  if (DECISION_PATTERNS.some((p) => p.test(summary))) {
+    return "decision";
+  }
+
+  // Fact: moderate signal
+  if (FACT_PATTERNS.some((p) => p.test(summary))) {
+    return "fact";
+  }
+
+  // Note: if summary has substantial content, save as note
+  if (summary.length > 500) {
+    return "note";
+  }
+
+  return null;
+}
 
 // --- Extension ---
 
@@ -97,8 +138,18 @@ export default function memExtension(pi: ExtensionAPI) {
     // 1. Save compaction summary to raw/compaction/
     getCore().saveMemory("compaction", event.compactionEntry.summary);
 
-    // 2. B+D: sync index so new files are indexed (D is automatic via syncIndex)
-    // B (decide if wiki entry needed) — not automated, review via daily-audit
+    // 2. B: auto-classify summary and write to wiki if worth preserving
+    const summary = event.compactionEntry.summary;
+    const memType = classifySummary(summary);
+    if (memType) {
+      try {
+        getCore().saveMemory(memType, summary);
+      } catch (e) {
+        console.error("[memory] saveMemory failed:", e);
+      }
+    }
+
+    // 3. D: sync index so new files are indexed
     try {
       getCore().syncIndex();
     } catch (e) {
