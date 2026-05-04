@@ -21,7 +21,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { basename, join, relative } from "node:path";
+import { basename, join, relative, resolve, sep } from "node:path";
 import Database from "better-sqlite3";
 import { KnowledgeGraph } from "./knowledge-graph.js";
 
@@ -54,13 +54,17 @@ export interface WikiConfig {
   embedding: { model: string; ollamaUrl: string; maxInputChars: number };
   typeWeights: Record<string, number>;
   recency: { maxBoost: number; decayDays: number };
+  l1: { perSubjectCap: number };
+  spawn: { maxConcurrent: number; goalRepeatThreshold: number; recentCompactionsToScan: number };
 }
 
 const DEFAULT_CONFIG: WikiConfig = {
   search: { maxInjectTokens: 4000, l1MaxTokens: 2000, minScoreThreshold: 0.001, vectorSimilarityThreshold: 0.3, maxSearchResults: 20 },
   embedding: { model: "nomic-embed-text", ollamaUrl: "http://host.docker.internal:11434", maxInputChars: 8000 },
-  typeWeights: { user: 1.5, feedback: 1.4, project: 1.2, reference: 1.0, compaction: 0.7 },  // subject-based weights
+  typeWeights: { user: 1.5, feedback: 1.4, project: 1.2, reference: 1.0, compaction: 0.7 },
   recency: { maxBoost: 0.15, decayDays: 60 },
+  l1: { perSubjectCap: 10 },
+  spawn: { maxConcurrent: 2, goalRepeatThreshold: 3, recentCompactionsToScan: 10 },
 };
 
 export function loadWikiConfig(groupDir: string): WikiConfig {
@@ -73,6 +77,8 @@ export function loadWikiConfig(groupDir: string): WikiConfig {
         embedding: { ...DEFAULT_CONFIG.embedding, ...raw.embedding },
         typeWeights: { ...DEFAULT_CONFIG.typeWeights, ...raw.typeWeights },
         recency: { ...DEFAULT_CONFIG.recency, ...raw.recency },
+        l1: { ...DEFAULT_CONFIG.l1, ...raw.l1 },
+        spawn: { ...DEFAULT_CONFIG.spawn, ...raw.spawn },
       };
     }
   } catch { /* fall through to default */ }
@@ -120,8 +126,7 @@ function getSubjectFromTags(tags: string[]): string | null {
   return null;
 }
 
-/** Per-type cap for L1 entries (max entries per type) */
-const L1_PER_TYPE_CAP = 10;
+
 
 /** Compute recency boost: 1.0 for recent, decays to (1 - maxBoost) for old entries */
 function recencyBoost(dateStr: string, recency: WikiConfig["recency"]): number {
@@ -193,6 +198,12 @@ export function getMemoryType(tags: string, fallbackType: string): string {
 }
 
 /** Extract [[link]] targets from content */
+export function isPathSafe(filePath: string, allowedDir: string): boolean {
+  const normalized = resolve(filePath);
+  const allowed = resolve(allowedDir);
+  return normalized.startsWith(allowed + sep);
+}
+
 export function extractLinks(content: string): string[] {
   const links: string[] = [];
   const regex = /\[\[([^\]]+)\]\]/g;
@@ -777,7 +788,7 @@ export class MemoryCore {
     const scoreMap = new Map<string, number>();
     const result: MemoryEntry[] = [];
     for (const [, entries] of bySubject) {
-      for (const e of entries.slice(0, L1_PER_TYPE_CAP)) {
+      for (const e of entries.slice(0, this.config.l1.perSubjectCap)) {
         scoreMap.set(e.filePath, e._score);
         result.push(e);
       }

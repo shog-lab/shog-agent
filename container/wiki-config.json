@@ -21,5 +21,13 @@
   "recency": {
     "maxBoost": 0.15,
     "decayDays": 60
+  },
+  "l1": {
+    "perSubjectCap": 10
+  },
+  "spawn": {
+    "maxConcurrent": 2,
+    "goalRepeatThreshold": 3,
+    "recentCompactionsToScan": 10
   }
 }

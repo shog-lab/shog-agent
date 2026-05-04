@@ -11,7 +11,7 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { existsSync, readdirSync, copyFileSync, mkdirSync, readFileSync, statSync, writeFileSync, appendFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { basename, dirname, join, relative } from "node:path";
-import { MemoryCore } from "./core.js";
+import { MemoryCore, isPathSafe } from "./core.js";
 
 // --- Config ---
 
@@ -109,8 +109,33 @@ function logMaintenance(action: string, detail: Record<string, unknown>): void {
 
 // --- F: detect repeated goals and suggest/create skills ---
 
-const GOAL_REPEAT_THRESHOLD = 3;
-const RECENT_COMPACTIONS_TO_SCAN = 10;
+/** Simple semaphore for concurrent L2 task limiting */
+class Semaphore {
+  private queue: Array<() => void> = [];
+  constructor(private maxConcurrent: number) {}
+  async acquire(): Promise<void> {
+    if (this.running < this.maxConcurrent) {
+      this.running++;
+      return;
+    }
+    return new Promise<void>((r) => { this.queue.push(r); });
+  }
+  release(): void {
+    this.running--;
+    const next = this.queue.shift();
+    if (next) { this.running++; next(); }
+  }
+  private running = 0;
+}
+
+let spawnSemaphore: Semaphore;
+function getSemaphore(): Semaphore {
+  if (!spawnSemaphore) {
+    const maxConcurrent = getCore().config.spawn.maxConcurrent;
+    spawnSemaphore = new Semaphore(maxConcurrent);
+  }
+  return spawnSemaphore;
+}
 
 function extractGoal(summary: string): string | null {
   const match = summary.match(/^##\s+Goal\s*\n([\s\S]*?)(?:\n##|\n---)/m);
@@ -143,9 +168,9 @@ function detectSkillPattern(): string | null {
         mtime: statSync(join(compactionDir, f)).mtimeMs,
       }))
       .sort((a, b) => b.mtime - a.mtime)
-      .slice(0, RECENT_COMPACTIONS_TO_SCAN);
+      .slice(0, getCore().config.spawn.recentCompactionsToScan);
 
-    if (files.length < GOAL_REPEAT_THRESHOLD) return null;
+    if (files.length < getCore().config.spawn.goalRepeatThreshold) return null;
 
     const goals: Array<{ goal: string; count: number }> = [];
     for (const { name } of files) {
@@ -161,7 +186,7 @@ function detectSkillPattern(): string | null {
       }
     }
 
-    const repeated = goals.find((g) => g.count >= GOAL_REPEAT_THRESHOLD);
+    const repeated = goals.find((g) => g.count >= getCore().config.spawn.goalRepeatThreshold);
     if (!repeated) return null;
 
     // Collect all compaction summaries related to this repeated goal
@@ -298,25 +323,25 @@ export default function memExtension(pi: ExtensionAPI) {
     // 1. Save compaction summary to raw/compaction/
     getCore().saveMemory("compaction", summary);
 
-    // 2. B: fire-and-forget, result handled in .then()
-    spawnL2Task("B", { summary }).then((bResult) => {
-      if (bResult.ok !== false && bResult.wikiFile) {
-        // Verify the file actually exists and path is within GROUP_DIR/wiki/
-        const wikiDir = join(GROUP_DIR, "wiki");
-        const wikiFile = bResult.wikiFile as string;
-        if (
-          existsSync(wikiFile) &&
-          wikiFile.startsWith(wikiDir) &&
-          wikiFile.endsWith(".md")
-        ) {
-          logMaintenance("B", { subject: bResult.subject, wikiFile });
+    // 2. B: fire-and-forget with semaphore
+    getSemaphore().acquire().then(async () => {
+      try {
+        const bResult = await spawnL2Task("B", { summary });
+        if (bResult.ok !== false && bResult.wikiFile) {
+          const wikiDir = join(GROUP_DIR, "wiki");
+          const wikiFile = bResult.wikiFile as string;
+          if (isPathSafe(wikiFile, wikiDir) && wikiFile.endsWith(".md")) {
+            logMaintenance("B", { subject: bResult.subject, wikiFile });
+          } else {
+            console.error("[memory] B L2: unsafe path:", wikiFile);
+            logMaintenance("B-error", { error: "unsafe path", wikiFile });
+          }
         } else {
-          console.error("[memory] B L2: file not found or unsafe path:", wikiFile);
-          logMaintenance("B-error", { error: "unsafe or missing wikiFile", wikiFile });
+          console.error("[memory] B L2 failed:", bResult.error);
+          logMaintenance("B-error", { error: bResult.error });
         }
-      } else {
-        console.error("[memory] B L2 failed:", bResult.error);
-        logMaintenance("B-error", { error: bResult.error });
+      } finally {
+        getSemaphore().release();
       }
     });
 
@@ -329,27 +354,27 @@ export default function memExtension(pi: ExtensionAPI) {
       logMaintenance("D-error", { error: String(e) });
     }
 
-    // 4. F: detect repeated goals via pattern match, then fire-and-forget
+    // 4. F: detect repeated goals via pattern match, then fire-and-forget with semaphore
     const skillResult = detectSkillPattern();
     if (skillResult) {
-      spawnL2Task("F", { goal: skillResult.goal, summaries: skillResult.summaries }).then((fResult) => {
-        if (fResult.ok !== false && fResult.skillFile) {
-          // Verify the file actually exists and path is within GROUP_DIR/skills/
-          const skillsDir = join(GROUP_DIR, "skills");
-          const skillFile = fResult.skillFile as string;
-          if (
-            existsSync(skillFile) &&
-            skillFile.startsWith(skillsDir) &&
-            skillFile.endsWith("SKILL.md")
-          ) {
-            logMaintenance("F", { skillName: fResult.skillName, skillFile });
+      getSemaphore().acquire().then(async () => {
+        try {
+          const fResult = await spawnL2Task("F", { goal: skillResult.goal, summaries: skillResult.summaries });
+          if (fResult.ok !== false && fResult.skillFile) {
+            const skillsDir = join(GROUP_DIR, "skills");
+            const skillFile = fResult.skillFile as string;
+            if (isPathSafe(skillFile, skillsDir) && skillFile.endsWith("SKILL.md")) {
+              logMaintenance("F", { skillName: fResult.skillName, skillFile });
+            } else {
+              console.error("[memory] F L2: unsafe path:", skillFile);
+              logMaintenance("F-error", { error: "unsafe path", skillFile });
+            }
           } else {
-            console.error("[memory] F L2: file not found or unsafe path:", skillFile);
-            logMaintenance("F-error", { error: "unsafe or missing skillFile", skillFile });
+            console.error("[memory] F L2 failed:", fResult.error);
+            logMaintenance("F-error", { error: fResult.error });
           }
-        } else {
-          console.error("[memory] F L2 failed:", fResult.error);
-          logMaintenance("F-error", { error: fResult.error });
+        } finally {
+          getSemaphore().release();
         }
       });
     }
