@@ -260,21 +260,21 @@ function spawnL2Task(taskType: "B" | "F", params: Record<string, unknown>): Prom
 
 export default function memExtension(pi: ExtensionAPI) {
   // On compaction: save summary + do B+D+F maintenance
-  pi.on("session_compact", async (event) => {
+  pi.on("session_compact", (event) => {
     const summary = event.compactionEntry.summary;
 
     // 1. Save compaction summary to raw/compaction/
     getCore().saveMemory("compaction", summary);
 
-    // 2. B: spawn L2 to classify subject and write wiki entry
-    // 2. B: spawn L2 to classify subject and write wiki entry
-    const bResult = await spawnL2Task("B", { summary });
-    if (bResult.ok !== false && bResult.wikiFile) {
-      logMaintenance("B", { subject: bResult.subject, wikiFile: bResult.wikiFile });
-    } else {
-      console.error("[memory] B L2 failed:", bResult.error);
-      logMaintenance("B-error", { error: bResult.error });
-    }
+    // 2. B: fire-and-forget, result handled in .then()
+    spawnL2Task("B", { summary }).then((bResult) => {
+      if (bResult.ok !== false && bResult.wikiFile) {
+        logMaintenance("B", { subject: bResult.subject, wikiFile: bResult.wikiFile });
+      } else {
+        console.error("[memory] B L2 failed:", bResult.error);
+        logMaintenance("B-error", { error: bResult.error });
+      }
+    });
 
     // 3. D: sync index (sync, no spawn)
     try {
@@ -285,16 +285,17 @@ export default function memExtension(pi: ExtensionAPI) {
       logMaintenance("D-error", { error: String(e) });
     }
 
-    // 4. F: detect repeated goals via pattern match, then spawn L2 to generate skill
+    // 4. F: detect repeated goals via pattern match, then fire-and-forget
     const skillResult = detectSkillPattern();
     if (skillResult) {
-      const fResult = await spawnL2Task("F", { goal: skillResult.goal, summaries: skillResult.summaries });
-      if (fResult.ok !== false && fResult.skillFile) {
-        logMaintenance("F", { skillName: fResult.skillName, skillFile: fResult.skillFile });
-      } else {
-        console.error("[memory] F L2 failed:", fResult.error);
-        logMaintenance("F-error", { error: fResult.error });
-      }
+      spawnL2Task("F", { goal: skillResult.goal, summaries: skillResult.summaries }).then((fResult) => {
+        if (fResult.ok !== false && fResult.skillFile) {
+          logMaintenance("F", { skillName: fResult.skillName, skillFile: fResult.skillFile });
+        } else {
+          console.error("[memory] F L2 failed:", fResult.error);
+          logMaintenance("F-error", { error: fResult.error });
+        }
+      });
     }
   });
 
