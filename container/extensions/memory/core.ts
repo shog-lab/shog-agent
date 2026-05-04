@@ -58,7 +58,7 @@ export interface WikiConfig {
 const DEFAULT_CONFIG: WikiConfig = {
   search: { maxInjectTokens: 4000, l1MaxTokens: 2000, minScoreThreshold: 0.001, vectorSimilarityThreshold: 0.3, maxSearchResults: 20 },
   embedding: { model: "nomic-embed-text", ollamaUrl: "http://host.docker.internal:11434", maxInputChars: 8000 },
-  typeWeights: { preference: 1.5, decision: 1.4, workflow: 1.3, fact: 1.0, research: 0.9, compaction: 0.7, note: 1.0 },
+  typeWeights: { user: 1.5, feedback: 1.4, project: 1.2, reference: 1.0, compaction: 0.7 },  // subject-based weights
   recency: { maxBoost: 0.15, decayDays: 60 },
 };
 
@@ -101,6 +101,23 @@ const STOPWORDS = new Set([
 ]);
 
 const L1_TYPES = new Set(["preference", "decision", "fact"]);
+
+/** Subject axis: who this memory is about (replaces type as L1 filter) */
+const SUBJECT_AXIS = new Set(["user", "project", "feedback", "reference"]);
+
+/** Extract subject from tags array (e.g. tags=[...,"subject:project"] → "project") */
+function getSubjectFromTags(tags: string[]): string | null {
+  for (const tag of tags) {
+    const trimmed = tag.trim();
+    if (trimmed.startsWith("subject:")) {
+      const val = trimmed.slice("subject:".length);
+      if (SUBJECT_AXIS.has(val)) return val;
+    }
+    // Also handle bare subject values (migrated format)
+    if (SUBJECT_AXIS.has(trimmed)) return trimmed;
+  }
+  return null;
+}
 
 /** Per-type cap for L1 entries (max entries per type) */
 const L1_PER_TYPE_CAP = 10;
@@ -723,21 +740,22 @@ export class MemoryCore {
           const rawContent = readFileSync(filePath, "utf-8");
           const { meta, body } = parseFrontmatter(rawContent);
           const tags = Array.isArray(meta.tags) ? meta.tags : [];
-          const memType = getMemoryType(tags.join(","), (meta.type as string) || "note");
-          if (L1_TYPES.has(memType)) {
-            const date = (meta.date as string) || "";
-            const typeWeight = this.config.typeWeights[memType] ?? 1.0;
-            const boost = recencyBoost(date, recency);
-            const score = typeWeight * boost;
-            scored.push({
-              filePath,
-              date,
-              type: (meta.type as string) || "note",
-              tags: tags.length ? tags : undefined,
-              content: body,
-              _score: score,
-            });
-          }
+          // Subject is the L1 filter axis (replaces type)
+          const subject = getSubjectFromTags(tags);
+          if (!subject) continue;
+
+          const date = (meta.date as string) || "";
+          const typeWeight = this.config.typeWeights[subject] ?? 1.0;
+          const boost = recencyBoost(date, recency);
+          const score = typeWeight * boost;
+          scored.push({
+            filePath,
+            date,
+            type: (meta.type as string) || "memory",
+            tags: tags.length ? tags : undefined,
+            content: body,
+            _score: score,
+          });
         } catch {}
       }
     }
@@ -745,16 +763,17 @@ export class MemoryCore {
     // Sort by score descending
     scored.sort((a, b) => b._score - a._score);
 
-    // Per-type cap: keep top N per type
-    const byType = new Map<string, ScoredEntry[]>();
+    // Per-subject cap: keep top N per subject
+    const bySubject = new Map<string, ScoredEntry[]>();
     for (const entry of scored) {
-      const list = byType.get(entry.type) ?? [];
+      const subject = getSubjectFromTags(entry.tags ?? []) ?? "reference";
+      const list = bySubject.get(subject) ?? [];
       list.push(entry);
-      byType.set(entry.type, list);
+      bySubject.set(subject, list);
     }
 
     const result: MemoryEntry[] = [];
-    for (const [, entries] of byType) {
+    for (const [, entries] of bySubject) {
       result.push(...entries.slice(0, L1_PER_TYPE_CAP));
     }
 

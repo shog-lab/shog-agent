@@ -87,49 +87,7 @@ function getCore(): MemoryCore {
   return core;
 }
 
-// --- B: classify summary and determine if wiki entry is needed ---
-
-const DECISION_PATTERNS = [
-  /decided|chose|adopted|will use|instead of|replaced|switched to|migrated to|using (?!this|that|the)/i,
-  /(?:new|changed|updated) (?:approach|strategy|method|model|architecture)/i,
-  /deprecated|废弃|停用|不再使用/i,
-];
-
-const FACT_PATTERNS = [
-  /^[-*] .+(?:installed|deployed|built|created|implemented)/im,
-  /(?:built|deployed|installed|implemented) .+ on \d{4}-\d{2}-\d{2}/i,
-  /\d+ (?:files?|sessions?|tasks?|groups?|agents?)/i,
-  /(?:error|bug|issue) .+ (?:fixed|resolved|detected)/i,
-];
-
-/**
- * Classify summary text and return memory type, or null if not worth saving
- */
-function classifySummary(summary: string): string | null {
-  const lines = summary.split("\n").filter((l) => l.trim());
-
-  // Skip very short summaries
-  if (lines.length < 3) return null;
-
-  // Decision: strong signal
-  if (DECISION_PATTERNS.some((p) => p.test(summary))) {
-    return "decision";
-  }
-
-  // Fact: moderate signal
-  if (FACT_PATTERNS.some((p) => p.test(summary))) {
-    return "fact";
-  }
-
-  // Note: if summary has substantial content, save as note
-  if (summary.length > 500) {
-    return "note";
-  }
-
-  return null;
-}
-
-// --- B continued: classify subject (who this is about) ---
+// --- Classify subject (who this is about) ---
 
 const SUBJECT_PATTERNS: Array<{ pattern: RegExp; subject: string }> = [
   { pattern: /(?:用户说|user said|I was told|用户要求|用户希望|user want|user expect)/i, subject: "user" },
@@ -258,23 +216,18 @@ export default function memExtension(pi: ExtensionAPI) {
   // On compaction: save summary + do B+D+F maintenance
   pi.on("session_compact", (event) => {
     const summary = event.compactionEntry.summary;
-    const memType = classifySummary(summary);
     const subject = classifySubject(summary);
 
     // 1. Save compaction summary to raw/compaction/
     getCore().saveMemory("compaction", summary);
 
-    // 2. B: auto-classify summary and write to wiki if worth preserving
-    if (memType) {
-      try {
-        const wikiFile = getCore().saveMemory(memType, summary, [`subject:${subject}`]);
-        logMaintenance("B", { memType, subject, wikiFile });
-      } catch (e) {
-        console.error("[memory] saveMemory failed:", e);
-        logMaintenance("B-error", { memType, subject, error: String(e) });
-      }
-    } else {
-      logMaintenance("B-skip", { reason: "too short or no type match" });
+    // 2. Write to wiki using subject as primary axis (type=memory is placeholder)
+    try {
+      const wikiFile = getCore().saveMemory("memory", summary, [`subject:${subject}`]);
+      logMaintenance("B", { subject, wikiFile });
+    } catch (e) {
+      console.error("[memory] saveMemory failed:", e);
+      logMaintenance("B-error", { subject, error: String(e) });
     }
 
     // 3. D: sync index so new files are indexed
