@@ -192,11 +192,26 @@ function spawnL2Task(taskType: "B" | "F", params: Record<string, unknown>): Prom
     const systemPrompt = taskType === "B"
       ? [
           "You are a memory classifier sub-agent.",
-          "Read the summary below, classify its subject (who this is about), and write it to the wiki.",
+          "Classify each memory by subject: who is this memory about?",
+          "",
+          "## user — User preferences, requests, or constraints",
+          "When: The user explicitly asked for something or stated a preference/constraint",
+          'Examples: "用户希望用 pm2 管理进程" / "用户要求不提命令行"',
+          "",
+          "## project — Project code, architecture, or technical decisions",
+          "When: The content is about project structure, code, files, or how the system works",
+          'Examples: "代码迁移到了 raw/compaction/" / "项目用 Docker 管理"',
+          "",
+          "## feedback — Agent's own suggestions, decisions, or reflections",
+          "When: The agent recommends something, decides an approach, or reflects on what was done",
+          'Examples: "我建议用 subject tag 分类" / "决定把 compaction 移出 wiki"',
+          "",
+          "## reference — External knowledge, docs, or research",
+          "When: The content is about reading papers, docs, or external information",
+          'Examples: "读了一篇关于 agent memory 的论文"',
           "",
           "Rules:",
-          "- Classify subject as one of: user, project, feedback, reference",
-          "- Write the content to <GROUP_DIR>/wiki/ as a .md file",
+          "- Write to <GROUP_DIR>/wiki/ as a .md file",
           "- Use frontmatter: date, type=memory, tags=[subject:<value>]",
           '- Return JSON: {"subject": "<value>", "wikiFile": "<path written>"}',
           "",
@@ -242,9 +257,26 @@ function spawnL2Task(taskType: "B" | "F", params: Record<string, unknown>): Prom
 
     proc.on("close", () => {
       clearTimeout(timer);
-      const jsonMatch = output.match(/\{[\s\S]*?\}/);
+      // Try to find JSON in markdown code block first, then fallback to last balanced {}
+      let jsonMatch: RegExpMatchArray | null = null;
+      const codeBlockMatch = output.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+      if (codeBlockMatch) {
+        try {
+          jsonMatch = [codeBlockMatch[0], codeBlockMatch[1]];
+        } catch {}
+      }
+      if (!jsonMatch) {
+        // Find the last balanced {...} block
+        const all = output.matchAll(/\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g);
+        const matches = [...all];
+        jsonMatch = matches[matches.length - 1] || null;
+      }
       if (jsonMatch) {
-        resolve(JSON.parse(jsonMatch[0]));
+        try {
+          resolve(JSON.parse(jsonMatch[jsonMatch.length - 1]));
+        } catch (e) {
+          resolve({ ok: false, error: `JSON parse failed: ${e}`, raw: output.slice(0, 200) });
+        }
       } else {
         resolve({ ok: false, error: "no JSON in L2 output", raw: output.slice(0, 200) });
       }
@@ -269,7 +301,19 @@ export default function memExtension(pi: ExtensionAPI) {
     // 2. B: fire-and-forget, result handled in .then()
     spawnL2Task("B", { summary }).then((bResult) => {
       if (bResult.ok !== false && bResult.wikiFile) {
-        logMaintenance("B", { subject: bResult.subject, wikiFile: bResult.wikiFile });
+        // Verify the file actually exists and path is within GROUP_DIR/wiki/
+        const wikiDir = join(GROUP_DIR, "wiki");
+        const wikiFile = bResult.wikiFile as string;
+        if (
+          existsSync(wikiFile) &&
+          wikiFile.startsWith(wikiDir) &&
+          wikiFile.endsWith(".md")
+        ) {
+          logMaintenance("B", { subject: bResult.subject, wikiFile });
+        } else {
+          console.error("[memory] B L2: file not found or unsafe path:", wikiFile);
+          logMaintenance("B-error", { error: "unsafe or missing wikiFile", wikiFile });
+        }
       } else {
         console.error("[memory] B L2 failed:", bResult.error);
         logMaintenance("B-error", { error: bResult.error });
@@ -290,7 +334,19 @@ export default function memExtension(pi: ExtensionAPI) {
     if (skillResult) {
       spawnL2Task("F", { goal: skillResult.goal, summaries: skillResult.summaries }).then((fResult) => {
         if (fResult.ok !== false && fResult.skillFile) {
-          logMaintenance("F", { skillName: fResult.skillName, skillFile: fResult.skillFile });
+          // Verify the file actually exists and path is within GROUP_DIR/skills/
+          const skillsDir = join(GROUP_DIR, "skills");
+          const skillFile = fResult.skillFile as string;
+          if (
+            existsSync(skillFile) &&
+            skillFile.startsWith(skillsDir) &&
+            skillFile.endsWith("SKILL.md")
+          ) {
+            logMaintenance("F", { skillName: fResult.skillName, skillFile });
+          } else {
+            console.error("[memory] F L2: file not found or unsafe path:", skillFile);
+            logMaintenance("F-error", { error: "unsafe or missing skillFile", skillFile });
+          }
         } else {
           console.error("[memory] F L2 failed:", fResult.error);
           logMaintenance("F-error", { error: fResult.error });

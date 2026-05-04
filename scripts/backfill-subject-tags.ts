@@ -47,7 +47,9 @@ function serializeFrontmatter(meta: Record<string, unknown>, body: string): stri
   const lines = ["---"];
   for (const [key, value] of Object.entries(meta)) {
     if (Array.isArray(value)) {
-      lines.push(`${key}: [${(value as string[]).join(", ")}]`);
+      // Quote each tag value to handle colons safely in YAML
+      const quoted = (value as string[]).map((v) => `"${v}"`).join(", ");
+      lines.push(`${key}: [${quoted}]`);
     } else {
       lines.push(`${key}: ${value}`);
     }
