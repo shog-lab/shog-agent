@@ -39,6 +39,7 @@ export interface MemoryEntry {
   content: string;
   links?: string[]; // [[link]] targets found in content
   _score?: number; // used internally for loadL1 sorting
+}
 
 export interface SearchResult {
   entry: MemoryEntry;
