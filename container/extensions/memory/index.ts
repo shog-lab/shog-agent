@@ -2,6 +2,7 @@
  * ShogAgent Memory Extension for pi-coding-agent
  *
  * Hooks into agent lifecycle:
+ * - turn_end → archive session every N turns
  * - session_compact → auto-save compaction summary + spawn L2 for B+D+F
  * - before_agent_start → inject L1 + L2/L3 memories + KG into system prompt
  */
@@ -9,8 +10,8 @@
 import { spawn } from "node:child_process";
 import { execSync } from "node:child_process";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { existsSync } from "node:fs";
-import { basename, join } from "node:path";
+import { existsSync, readdirSync, copyFileSync, mkdirSync } from "node:fs";
+import { basename, dirname, join, relative } from "node:path";
 import { MemoryCore } from "./core.js";
 
 // --- Config ---
@@ -20,6 +21,49 @@ const DB_PATH = join(GROUP_DIR, ".wiki-index.db");
 const LEGACY_MEMORY_DIR = join(GROUP_DIR, "memory");
 const LEGACY_LLM_WIKI_DIR = join(GROUP_DIR, "llm-wiki");
 const MIN_SCORE_THRESHOLD = 0.001;
+
+// --- Turn counter for session archival ---
+
+let turnCount = 0;
+const ARCHIVE_EVERY_N_TURNS = 10;
+
+function archiveSession(): void {
+  // Detect session source path (L1 in container vs L3 on host)
+  let sessionSrc: string;
+  if (isInContainer()) {
+    sessionSrc = "/home/node/.pi/agent/sessions";
+  } else {
+    // L3 on host
+    sessionSrc = join(process.env.HOME || "", ".pi", "agent", "sessions");
+  }
+  const rawSessionsDir = join(GROUP_DIR, "raw", "sessions");
+
+  try {
+    if (!existsSync(sessionSrc)) return;
+    mkdirSync(rawSessionsDir, { recursive: true });
+
+    const visit = (dir: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          visit(full);
+        } else if (entry.name.endsWith(".jsonl")) {
+          const rel = relative(sessionSrc, full);
+          const dest = join(rawSessionsDir, rel);
+          mkdirSync(dirname(dest), { recursive: true });
+          try {
+            copyFileSync(full, dest);
+          } catch {
+            // skip individual copy failures
+          }
+        }
+      }
+    };
+    visit(sessionSrc);
+  } catch {
+    // Non-fatal
+  }
+}
 
 // --- Singleton ---
 
@@ -106,6 +150,18 @@ export default function memExtension(pi: ExtensionAPI) {
       spawnMaintenanceL2(summaryFile);
     } catch (e) {
       console.error("[memory] Failed to spawn maintenance L2:", e);
+    }
+  });
+
+  // Archive session every N turns (non-blocking, no spawn)
+  pi.on("turn_end", () => {
+    turnCount++;
+    if (turnCount % ARCHIVE_EVERY_N_TURNS === 0) {
+      try {
+        archiveSession();
+      } catch {
+        // Non-fatal
+      }
     }
   });
 
