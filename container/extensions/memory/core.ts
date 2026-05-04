@@ -185,7 +185,7 @@ export function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
-export function getMemoryType(tags: string, fallbackType: string): string {
+export function getMemoryType(tags: string, sourceField: string, fallbackType: string): string {
   if (tags) {
     for (const tag of tags.split(",")) {
       const trimmed = tag.trim();
@@ -194,7 +194,7 @@ export function getMemoryType(tags: string, fallbackType: string): string {
       }
     }
   }
-  return fallbackType || "note";
+  return sourceField || fallbackType || "note";
 }
 
 /** Extract [[link]] targets from content */
@@ -325,7 +325,7 @@ export class MemoryCore {
         const raw = readFileSync(src, "utf-8");
         const { meta } = parseFrontmatter(raw);
         const tags = Array.isArray(meta.tags) ? meta.tags.join(",") : "";
-        const memType = getMemoryType(tags, (meta.type as string) || "note");
+        const memType = getMemoryType(tags, (meta.source as string) || (meta.type as string) || "note");
         const subdir = TYPE_SUBDIR[memType]; // only compaction has a subdir
         const destDir = subdir ? join(this.wikiDir, subdir) : this.wikiDir;
         mkdirSync(destDir, { recursive: true });
@@ -438,7 +438,7 @@ export class MemoryCore {
       // Auto-heal: add missing frontmatter
       if (!rawContent.startsWith("---")) {
         const healed = serializeFrontmatter(
-          { date: new Date().toISOString(), type: "note", tags: ["auto-healed"] },
+          { date: new Date().toISOString(), source: "note", tags: ["auto-healed"] },
           rawContent,
         );
         try { writeFileSync(filePath, healed, "utf-8"); } catch {}
@@ -447,10 +447,10 @@ export class MemoryCore {
 
       const { meta, body } = parseFrontmatter(rawContent);
 
-      // Auto-heal: add missing type
+      // Auto-heal: add missing source (replaces legacy type field)
       let needsRewrite = false;
-      if (!meta.type) {
-        meta.type = "note";
+      if (!meta.source && !meta.type) {
+        meta.source = "note";
         needsRewrite = true;
       }
       // Auto-heal: add missing date
@@ -463,13 +463,13 @@ export class MemoryCore {
       }
 
       const date = (meta.date as string) || "";
-      const type = (meta.type as string) || "note";
+      const source = (meta.source as string) || (meta.type as string) || "note";
       const tags = Array.isArray(meta.tags) ? meta.tags.join(",") : "";
 
       this.db.prepare("DELETE FROM memory_fts WHERE file_path = ?").run(filePath);
       this.db.prepare(
         "INSERT INTO memory_fts (file_path, content, date, type, tags) VALUES (?, ?, ?, ?, ?)"
-      ).run(filePath, body, date, type, tags);
+      ).run(filePath, body, date, source, tags);
       this.db.prepare(
         "INSERT OR REPLACE INTO memory_meta (file_path, mtime_ms) VALUES (?, ?)"
       ).run(filePath, mtime);
@@ -539,7 +539,7 @@ export class MemoryCore {
     const hash = createHash("sha256").update(content).digest("hex").slice(0, 8);
     const fileName = `${timestamp}_${hash}.md`;
     const filePath = join(destDir, fileName);
-    const raw = serializeFrontmatter({ date: now.toISOString(), type, tags }, content);
+    const raw = serializeFrontmatter({ date: now.toISOString(), source: type, tags }, content);
     writeFileSync(filePath, raw, "utf-8");
     try { this.extractTriplesFromFile(filePath); } catch {}
     return filePath;
@@ -579,7 +579,7 @@ export class MemoryCore {
         entries.push({
           filePath,
           date: (meta.date as string) || "",
-          type: (meta.type as string) || "note",
+          type: (meta.source as string) || (meta.type as string) || "note",
           tags: Array.isArray(meta.tags) ? meta.tags : undefined,
           content: body,
         });
@@ -650,8 +650,9 @@ export class MemoryCore {
       const docEmbedding = new Float64Array(row.embedding.buffer, row.embedding.byteOffset, row.embedding.byteLength / 8);
       let score = this.cosineSimilarity(queryEmbedding, docEmbedding);
 
-      const memType = getMemoryType(row.tags, row.type);
-      score *= TYPE_WEIGHTS[memType] || 1.0;
+      // Use subject from tags for TYPE_WEIGHTS scoring (not row.type/source)
+      const subject = getSubjectFromTags(row.tags ? row.tags.split(",") : []);
+      score *= TYPE_WEIGHTS[subject ?? "reference"] || 1.0;
 
       if (row.date) {
         const age = Date.now() - new Date(row.date).getTime();
@@ -712,8 +713,8 @@ export class MemoryCore {
     for (const row of rows) {
       let score = -row.rank;
       if (score <= 0) continue;
-      const memType = getMemoryType(row.tags, row.type);
-      score *= TYPE_WEIGHTS[memType] || 1.0;
+      const subject = getSubjectFromTags(row.tags ? row.tags.split(",") : []);
+      score *= TYPE_WEIGHTS[subject ?? "reference"] || 1.0;
       if (row.date) {
         const age = Date.now() - new Date(row.date).getTime();
         const recencyBoost = Math.max(0, 1 - age / (this.config.recency.decayDays * 86400000)) * this.config.recency.maxBoost;
@@ -763,7 +764,7 @@ export class MemoryCore {
           scored.push({
             filePath,
             date,
-            type: (meta.type as string) || "memory",
+            type: (meta.source as string) || (meta.type as string) || "memory",
             tags: tags.length ? tags : undefined,
             content: body,
             _score: score,
@@ -915,7 +916,7 @@ export class MemoryCore {
       for (const entry of l1Entries) {
         const tokens = estimateTokens(entry.content);
         if (l1Tokens + tokens > this.l1MaxTokens && l1Lines.length > 1) break;
-        const memType = getMemoryType(entry.tags?.join(",") || "", entry.type);
+        const memType = getMemoryType(entry.tags?.join(",") || "", entry.type, "note");
         l1Lines.push(`\n### ${memType} (${entry.date.slice(0, 10)})\n`);
         l1Lines.push(entry.content);
         l1Tokens += tokens;
@@ -936,7 +937,7 @@ export class MemoryCore {
     if (searchResults.length > 0) {
       const lines = ["<long-term-memory>"];
       for (const { entry, score } of searchResults) {
-        const memType = getMemoryType(entry.tags?.join(",") || "", entry.type);
+        const memType = getMemoryType(entry.tags?.join(",") || "", entry.type, "note");
         const meta = [`type=${memType}`, `date=${entry.date.slice(0, 10)}`];
         if (entry.tags?.length) {
           const displayTags = entry.tags.filter((t) => !t.startsWith("memory-type:"));
