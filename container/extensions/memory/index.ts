@@ -3,13 +3,11 @@
  *
  * Hooks into agent lifecycle:
  * - turn_end → archive session every N turns
- * - session_compact → auto-save compaction summary + spawn L2 for B+D+F
+ * - session_compact → auto-save compaction summary + do B+D maintenance
  * - before_agent_start → inject L1 + L2/L3 memories + KG into system prompt
  */
 
-import { spawn } from "node:child_process";
-import { execSync } from "node:child_process";
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI from "@mariozechner/pi-coding-agent";
 import { existsSync, readdirSync, copyFileSync, mkdirSync } from "node:fs";
 import { basename, dirname, join, relative } from "node:path";
 import { MemoryCore } from "./core.js";
@@ -21,6 +19,12 @@ const DB_PATH = join(GROUP_DIR, ".wiki-index.db");
 const LEGACY_MEMORY_DIR = join(GROUP_DIR, "memory");
 const LEGACY_LLM_WIKI_DIR = join(GROUP_DIR, "llm-wiki");
 const MIN_SCORE_THRESHOLD = 0.001;
+
+// --- Environment detection ---
+
+function isInContainer(): boolean {
+  return existsSync("/.dockerenv") || process.env.IN_DOCKER === "1";
+}
 
 // --- Turn counter for session archival ---
 
@@ -85,71 +89,20 @@ function getCore(): MemoryCore {
 
 // --- B+D+F: spawn L2 for maintenance task ---
 
-function isInContainer(): boolean {
-  return existsSync("/.dockerenv") || process.env.IN_DOCKER === "1";
-}
-
-function findPiBin(): string {
-  if (isInContainer()) {
-    return "/app/node_modules/.bin/pi";
-  }
-  // L3 on host: find pi in PATH
-  try {
-    return execSync("which pi", { encoding: "utf8" }).trim();
-  } catch {
-    // Fallback
-    return join(process.env.HOME || "", ".nvm", "versions", "node", "v24.14.0", "bin", "pi");
-  }
-}
-
-function spawnMaintenanceL2(summaryFile: string): void {
-  const piBin = findPiBin();
-  const groupDir = GROUP_DIR;
-
-  // Build minimal task prompt for B+D+F
-  // L2 reads summary file, decides wiki entry, marks FTS5, writes skill if needed
-  const taskPrompt = `Maintenance task for compaction summary.
-
-Read the compaction summary at: ${summaryFile}
-
-Group directory: ${groupDir}
-
-Task:
-1. Read the summary file
-2. If it contains new decisions, facts, or patterns worth preserving → write a formal wiki entry to ${groupDir}/wiki/ (type: decision/fact/note, with frontmatter: date, type, tags)
-3. Done. Report what you found/decided in plain text.`;
-
-  const args = [
-    "-p",
-    "--no-extensions",
-    "--model", process.env.MODEL ?? "minimax-cn/MiniMax-M2.7",
-    "--append-system-prompt", "You are a maintenance sub-agent. Rules: do the task, write wiki entries if needed, return plain text summary of what you did.",
-    taskPrompt,
-  ];
-
-  // Detached so hook doesn't block
-  const proc = spawn(piBin, args, {
-    cwd: groupDir,
-    detached: true,
-    stdio: "ignore",
-  });
-
-  proc.unref();
-}
-
 // --- Extension ---
 
 export default function memExtension(pi: ExtensionAPI) {
-  // On compaction: save summary + spawn L2 for B+D+F
+  // On compaction: save summary + do B+D maintenance (F is no-op for now)
   pi.on("session_compact", (event) => {
     // 1. Save compaction summary to raw/compaction/
-    const summaryFile = getCore().saveMemory("compaction", event.compactionEntry.summary);
+    getCore().saveMemory("compaction", event.compactionEntry.summary);
 
-    // 2. Spawn L2 (detached) for B+D+F — non-blocking
+    // 2. B+D: sync index so new files are indexed (D is automatic via syncIndex)
+    // B (decide if wiki entry needed) — not automated, review via daily-audit
     try {
-      spawnMaintenanceL2(summaryFile);
+      getCore().syncIndex();
     } catch (e) {
-      console.error("[memory] Failed to spawn maintenance L2:", e);
+      console.error("[memory] syncIndex failed:", e);
     }
   });
 
