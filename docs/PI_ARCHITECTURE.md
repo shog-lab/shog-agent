@@ -39,7 +39,8 @@ ShogAgent 当前采用三层 agent 架构：
 | 目录 | 内容 | 用途 |
 |---|---|---|
 | `groups/{name}/wiki/` | LLM Wiki | 长期知识 |
-| `groups/{name}/raw/conversations/` | 对话全文归档 | 审计 |
+| `groups/{name}/raw/sessions/` | Session JSONL 归档 | 审计 |
+| `groups/{name}/raw/compaction/` | Compaction summary 归档 | 审计 |
 | `groups/{name}/raw/logs/` | 运行日志 | 排障 / 审计 |
 | `groups/{name}/raw/artifacts/` | 测试与执行产物 | 黑盒验证 |
 | `groups/{name}/raw/mailbox/` | 治理上报与通信留痕 | 审计 / 扩展接口 |
@@ -51,7 +52,7 @@ ShogAgent 当前采用三层 agent 架构：
 
 | 宿主机源码 | 容器内路径 | 说明 |
 |---|---|---|
-| `container/pi-agent-runner/package.json` | `/app/` | 安装 pi-coding-agent |
+| `container/`（package.json 等） | `/app/` | 安装 pi-coding-agent |
 | `container/skills/` | `/app/skills/` | 内建 skills |
 | `container/system-prompt.md` | `/app/system-prompt.md` | 系统提示模板 |
 
