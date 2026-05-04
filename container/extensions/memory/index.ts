@@ -7,7 +7,7 @@
  * - before_agent_start → inject L1 + L2/L3 memories + KG into system prompt
  */
 
-import type { ExtensionAPI from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { existsSync, readdirSync, copyFileSync, mkdirSync, readFileSync, statSync, writeFileSync, appendFileSync } from "node:fs";
 import { basename, dirname, join, relative } from "node:path";
 import { MemoryCore } from "./core.js";
