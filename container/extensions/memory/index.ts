@@ -145,6 +145,15 @@ function extractGoal(summary: string): string | null {
   return firstLine.length > 0 ? firstLine : null;
 }
 
+function goalSimilarity(a: string, b: string): number {
+  const tokens = (s: string) => new Set(s.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter(Boolean));
+  const aTokens = tokens(a);
+  const bTokens = tokens(b);
+  const intersection = [...aTokens].filter((t) => bTokens.has(t)).length;
+  const union = new Set([...aTokens, ...bTokens]).size;
+  return union === 0 ? 0 : intersection / union;
+}
+
 function detectSkillPattern(): string | null {
   const compactionDir = join(GROUP_DIR, "raw", "compaction");
   if (!existsSync(compactionDir)) return null;
@@ -167,7 +176,7 @@ function detectSkillPattern(): string | null {
       const goal = extractGoal(content);
       if (!goal) continue;
 
-      const existing = goals.find((g) => g.goal === goal);
+      const existing = goals.find((g) => goalSimilarity(g.goal, goal) >= 0.7);
       if (existing) {
         existing.count++;
       } else {
