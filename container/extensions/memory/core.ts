@@ -38,7 +38,7 @@ export interface MemoryEntry {
   tags?: string[];
   content: string;
   links?: string[]; // [[link]] targets found in content
-}
+  _score?: number; // used internally for loadL1 sorting
 
 export interface SearchResult {
   entry: MemoryEntry;
@@ -772,17 +772,18 @@ export class MemoryCore {
       bySubject.set(subject, list);
     }
 
+    // Collect capped entries with score preserved
+    const scoreMap = new Map<string, number>();
     const result: MemoryEntry[] = [];
     for (const [, entries] of bySubject) {
-      result.push(...entries.slice(0, L1_PER_TYPE_CAP));
+      for (const e of entries.slice(0, L1_PER_TYPE_CAP)) {
+        scoreMap.set(e.filePath, e._score);
+        result.push(e);
+      }
     }
 
-    // Re-sort final result by score
-    result.sort((a, b) => {
-      const aEntry = scored.find((e) => e.filePath === a.filePath)!;
-      const bEntry = scored.find((e) => e.filePath === b.filePath)!;
-      return bEntry._score - aEntry._score;
-    });
+    // Final sort by score (O(N log N), score lookup is O(1) via Map)
+    result.sort((a, b) => (scoreMap.get(b.filePath) ?? 0) - (scoreMap.get(a.filePath) ?? 0));
 
     return result;
   }

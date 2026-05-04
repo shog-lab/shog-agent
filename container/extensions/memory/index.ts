@@ -177,34 +177,14 @@ function detectSkillPattern(): string | null {
 
     const repeated = goals.find((g) => g.count >= GOAL_REPEAT_THRESHOLD);
     if (!repeated) return null;
+    const repeated = goals.find((g) => g.count >= GOAL_REPEAT_THRESHOLD);
+    if (!repeated) return null;
 
-    // Build skill name from first line, strip parenthetical suffixes
-    const firstLine = repeated.goal.split("\n")[0].replace(/\s*\([^)]*\)/g, "").trim();
-    const skillName = firstLine
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-|-$/g, "")
-      .slice(0, 50);
-
-    if (!skillName) return null;
-
-    // Check if skill already exists
-    const skillDir = join(GROUP_DIR, "skills", skillName);
-    if (existsSync(skillDir)) return null;
-
-    // Write skill file
-    const skillContent = `---  
-description: Auto-generated skill from repeated goal pattern.
----
-
-# ${repeated.goal.split("\n")[0].trim()}
-
-Auto-created after detecting this goal repeated ${repeated.count} times across compactions.
-`;
-    mkdirSync(skillDir, { recursive: true });
-    writeFileSync(join(skillDir, "SKILL.md"), skillContent, "utf-8");
-    console.log(`[memory] Created skill "${skillName}" from repeated goal`);
-    return skillName;
+    // Log suggestion instead of auto-creating empty skill
+    const skillSuggestion = repeated.goal.split("\n")[0].replace(/\s*\([^)]*\)/g, "").trim().slice(0, 50);
+    console.log(`[memory] Repeated goal detected (${repeated.count}x): ${skillSuggestion}`);
+    logMaintenance("F-suggest", { goal: skillSuggestion, count: repeated.count });
+    return null;
   } catch {
     return null;
   }
